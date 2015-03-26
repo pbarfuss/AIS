@@ -23,12 +23,13 @@
  *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include <stdint.h>
 #include "splay.h"
 
 /* an entry in the cache */
 struct cache_ent {
-	int mmsi;
-	
+	uint32_t mmsi;
+
 	/* position message */
 	time_t received_pos;
 	float lat;
@@ -37,23 +38,21 @@ struct cache_ent {
 	float course;
 	float sog;
 	int navstat;
-	
+
 	/* vessel data message */
 	time_t received_data;
-	int imo;
+	unsigned int imo;
 	char *callsign;
 	char *name;
 	char *destination;
-	int shiptype;
-	int A;
-	int B;
-	int C;
-	int D;
+	unsigned int shiptype;
+    unsigned int A, B;
+    unsigned char C, D;
 	float draught;
-	
+
 	/* persons on board */
 	time_t received_persons_on_board;
-	int persons_on_board;
+	unsigned int persons_on_board;
 };
 
 extern int cache_positions;
@@ -65,22 +64,14 @@ extern void cache_free_entry(struct cache_ent *e);
 extern int cache_free(struct sptree *sp);
 extern struct sptree *cache_rotate(void);
 
-extern int cache_position(
-	int received_t, int mmsi, int navstat, float lat, float lon,
-	int hdg, float course, int rateofturn, float sog);
-
-extern int cache_vesseldata(
-	int received_t, int mmsi, int imo,
-	char *callsign, char *name, char *destination,
-	int shiptype, int A, int B, int C, int D, float draught);
-
-extern int cache_vessel_persons(int received_t, int mmsi, int persons_on_board);
-
-extern int cache_vesselname(int received_t, int mmsi, char *name, const char *destination);
-
-extern int cache_vesseldatab(int received_t, int mmsi,
-	char *callsign,
-	int shiptype, int A, int B, int C, int D);
-	
-extern int cache_vesseldatabb(int received_t, int mmsi,
-        int shiptype, int A, int B, int C, int D);
+extern int cache_position(int received_t, uint32_t mmsi, int navstat, float lat, float lon,
+	                      int hdg, float course, int rateofturn, float sog);
+extern int cache_vesseldata(int received_t, uint32_t mmsi, unsigned int imo, char *callsign,
+                            char *name, char *destination, unsigned int shiptype,
+                            uint32_t A, uint32_t B, uint8_t C, uint8_t D, float draught);
+extern int cache_vessel_persons(int received_t, uint32_t mmsi, unsigned int persons_on_board);
+extern int cache_vesselname(int received_t, uint32_t mmsi, char *name, const char *destination);
+extern int cache_vesseldatab(int received_t, uint32_t mmsi, char *callsign,
+                             unsigned int shiptype, uint32_t A, uint32_t B, uint8_t C, uint8_t D);
+extern int cache_vesseldatabb(int received_t, uint32_t mmsi, unsigned int shiptype,
+                              uint32_t A, uint32_t B, uint8_t C, uint8_t D);
