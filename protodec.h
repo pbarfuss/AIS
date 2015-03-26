@@ -29,8 +29,8 @@
 #define ST_DATA 4
 #define ST_STOPSIGN 5
 
-// change this to  
-//#define DBG(x) x 
+// change this to
+//#define DBG(x) x
 // if you want to see all debug text
 #define DBG(x)
 #define DEMOD_BUFFER_LEN 450
@@ -40,30 +40,29 @@ struct demod_state_t {
 	int state;
 	unsigned int offset;
 	int nskurr, npreamble, nstartsign, ndata, nstopsign;
-	
+
 	int antallenner;
 	unsigned char *buffer;
 	unsigned char *rbuffer;
 	char *tbuffer;
-	int bufferpos;
+	unsigned int bufferpos;
 	char last;
 	int antallpreamble;
 	int bitstuff;
-	int receivedframes;
-	int lostframes;
-	int lostframes2;
+	unsigned int receivedframes;
+	unsigned int lostframes;
+	unsigned int lostframes2;
 	unsigned char seqnr;
 	float best_range;
-	
-	struct serial_state_t *serial;
+
 	char *serbuffer;
-    int nmea_out_fd;
+    int serial_out_fd, nmea_out_fd;
 	char *nmea;
 };
 
-void protodec_initialize(struct demod_state_t *d, struct serial_state_t *serial, char chanid);
+void protodec_initialize(struct demod_state_t *d, int serial_out_fd, char chanid);
 void protodec_reset(struct demod_state_t *d);
-void protodec_getdata(int bufferlengde, struct demod_state_t *d);
-void protodec_decode(char *in, int count, struct demod_state_t *d);
+void protodec_getdata(unsigned int buffer_len, struct demod_state_t *d);
+void protodec_decode(char *in, unsigned int count, struct demod_state_t *d);
 
 #endif

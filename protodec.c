@@ -27,8 +27,8 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "protodec.h"
-#include "hlog.h"
 #include "cache.h"
+static const char hex[]="0123456789ABCDEF";
 
 //#define DEBUG_NMEA
 #ifdef DEBUG_NMEA
@@ -51,25 +51,20 @@ static inline float lat2rad(float lat)
 	return (lat * (M_PI / 180.0f));
 }
 
-void protodec_initialize(struct demod_state_t *d, struct serial_state_t *serial, char chanid)
+void protodec_initialize(struct demod_state_t *d, int serial_out_fd, char chanid)
 {
 	memset(d, 0, sizeof(struct demod_state_t));
 
 	d->chanid = chanid;
-	d->serial = serial;
+    d->nmea_out_fd = serial_out_fd;
 
 	d->receivedframes = 0;
 	d->lostframes = 0;
 	d->lostframes2 = 0;
-
-	protodec_reset(d);
-
 	d->seqnr = 0;
 
 	d->buffer = malloc(DEMOD_BUFFER_LEN);
 	d->rbuffer = malloc(DEMOD_BUFFER_LEN);
-
-	d->serbuffer = malloc(SERBUFFER_LEN);
 	d->nmea = malloc(SERBUFFER_LEN);
 }
 
@@ -77,7 +72,6 @@ void protodec_deinit(struct demod_state_t *d)
 {
 	free(d->buffer);
 	free(d->rbuffer);
-	free(d->serbuffer);
 	free(d->nmea);
 }
 
@@ -98,6 +92,11 @@ void protodec_reset(struct demod_state_t *d)
 
 /*
  * Calculates CRC-checksum
+ *
+ * This is CRC16-CCITT, used all over the place in broadcast
+ * (for instance, PACTOR and DMR, for just two examples).
+ * TODO: replace with a table-based version that does byte-at-a-time processing.
+ *
  */
 
 unsigned short protodec_sdlc_crc(const unsigned char *data, unsigned len)
@@ -114,47 +113,40 @@ unsigned short protodec_sdlc_crc(const unsigned char *data, unsigned len)
 
 }
 
-int protodec_calculate_crc(int length_bits, struct demod_state_t *d)
+int protodec_calculate_crc(unsigned int length_bits, struct demod_state_t *d)
 {
-	int length_bytes;
 	unsigned char *buf;
-	int buflen;
-	int i, j, x;
+	unsigned int i, j, length_bytes = (length_bits >> 3);
 	unsigned char tmp;
 
-	if (length_bits <= 0) {
-		hlog(LOG_ERR, "protodec_calculate_crc: length_bits <= 0!");
-		return 0;
-	}
-
-	length_bytes = length_bits / 8;
-	buflen = length_bytes + 2;
-
-	/* what is this? */
-	buf = (unsigned char *) malloc(sizeof(*buf) * buflen);
-	for (j = 0; j < buflen; j++) {
+	/* what is this?
+     * bit-packing, you sillies -- bofh
+     */
+	buf = (unsigned char *) malloc(length_bytes + 3);
+	for (j = 0; j < length_bytes+2; j++) {
 		tmp = 0;
 		for (i = 0; i < 8; i++)
-			tmp |= (((d->buffer[i + 8 * j]) << (i)));
+			tmp |= ((d->buffer[i + 8 * j]) << i);
 		buf[j] = tmp;
 	}
 
 	/* ok, here's the actual CRC calculation */
-	unsigned short crc = protodec_sdlc_crc(buf, buflen);
+	unsigned short crc = protodec_sdlc_crc(buf, length_bytes+2);
 	//DBG(printf("CRC: %04x\n",crc));
 
 	/* what is this? */
-	memset(d->rbuffer, 0, DEMOD_BUFFER_LEN);
+	if (length_bytes*8 >= DEMOD_BUFFER_LEN) {
+	    printf("protodec_calculate_crc: would run over rbuffer length");
+	    free(buf);
+	    return 0;
+    }
+
+    for (j = 0; j < DEMOD_BUFFER_LEN; j++) {
+        d->buffer[j] = 0;
+    }
 	for (j = 0; j < length_bytes; j++) {
 		for (i = 0; i < 8; i++) {
-			x = j * 8 + i;
-			if (x >= DEMOD_BUFFER_LEN) {
-				hlog(LOG_ERR, "protodec_calculate_crc: would run over rbuffer length");
-				free(buf);
-				return 0;
-			} else {
-				d->rbuffer[x] = (buf[j] >> (7 - i)) & 1;
-			}
+			d->rbuffer[8*j+i] = (buf[j] >> (7 - i)) & 1;
 		}
 	}
 
@@ -183,7 +175,7 @@ static void remove_trailing_spaces(char *s, int len)
  *	Decode 6-bit ASCII to normal 8-bit ASCII
  */
 
-void protodec_decode_sixbit_ascii(char sixbit, char *name, int pos)
+void protodec_decode_sixbit_ascii(char sixbit, char *name, unsigned int pos)
 {
 	if (sixbit >= 1 && sixbit <= 31) {
 		name[pos] = sixbit + 64;
@@ -198,9 +190,9 @@ void protodec_decode_sixbit_ascii(char sixbit, char *name, int pos)
 	name[pos] = ' ';
 }
 
-unsigned long protodec_henten(int from, int size, unsigned char *frame)
+unsigned long protodec_henten(unsigned int from, unsigned int size, unsigned char *frame)
 {
-	int i = 0;
+    unsigned int i;
 	unsigned long tmp = 0;
 
 	for (i = 0; i < size; i++)
@@ -213,7 +205,7 @@ unsigned long protodec_henten(int from, int size, unsigned char *frame)
  *	binary message types
  */
 
-const char *appid_ifm(int i)
+const char *appid_ifm(unsigned int i)
 {
 	switch (i) {
 	case 0:
@@ -271,7 +263,7 @@ const char *appid_ifm(int i)
  *	binary message decoding
  */
 
-void protodec_msg_40(unsigned char *buffer, int bufferlen, int msg_start, time_t received_t, unsigned long mmsi)
+void protodec_msg_40(unsigned char *buffer, unsigned int bufferlen, unsigned int msg_start, time_t received_t, uint64_t mmsi)
 {
 	int people_on_board = protodec_henten(msg_start, 13, buffer);
 	printf(" persons-on-board %d", people_on_board);
@@ -279,7 +271,7 @@ void protodec_msg_40(unsigned char *buffer, int bufferlen, int msg_start, time_t
 		cache_vessel_persons(received_t, mmsi, people_on_board);
 }
 
-void protodec_msg_11(unsigned char *buffer, int bufferlen, int msg_start, time_t received_t, unsigned long mmsi)
+void protodec_msg_11(unsigned char *buffer, unsigned int bufferlen, unsigned int msg_start, time_t received_t, uint64_t mmsi)
 {
 	int latitude = protodec_henten(msg_start, 24, buffer);
 	int longitude = protodec_henten(msg_start += 24, 25, buffer);
@@ -313,25 +305,13 @@ void protodec_msg_11(unsigned char *buffer, int bufferlen, int msg_start, time_t
 	//int sea_state = protodec_henten(msg_start += 9, 4, buffer);
 	int water_temp = protodec_henten(msg_start += 4, 10, buffer);
 
-	printf(" lat %.6f lon %.6f wind_speed %dkt wind_gust %dkt wind_dir %d wind_gust_dir %d air_temp %.1fC rel_humid %d%% dew_point %.1fC pressure %d pressure_tend %d visib %.1fNM water_level %.1fm wave_height %.1fm water_temp %.1fC",
-		(float)latitude / 60000.0,
-		(float)longitude / 60000.0,
-		wind_speed,
-		wind_gust,
-		wind_dir,
-		wind_gust_dir,
-		(float)air_temp / 10.0 - 60.0,
-		rel_humid,
-		(float)dew_point / 10.0 - 20.0,
-		air_press,
-		air_press_tend,
-		(float)horiz_visib_nm / 10.0,
-		(float)water_level / 10.0 - 10.0,
-		(float)wave_height_significant / 10.0,
-		(float)water_temp / 10.0 - 10.0);
+	printf(" lat %.6f lon %.6f wind_speed %dkt wind_gust %dkt wind_dir %d wind_gust_dir %d air_temp %.1fC rel_humid %d%% dew_point %.1fC pressure %d pressure_tend %d visib %.1fNM water_level %.1fm wave_height %.1fm water_temp %.1fC\n",
+		(float)latitude / 60000.0f, (float)longitude / 60000.0f, wind_speed, wind_gust, wind_dir, wind_gust_dir,
+		(float)air_temp * 0.1f - 60.0f, rel_humid, (float)dew_point * 0.1f - 20.0f, air_press, air_press_tend,
+		(float)horiz_visib_nm * 0.1f, (float)water_level * 0.1f - 10.0, (float)wave_height_significant * 0.1f, (float)water_temp * 0.1f - 10.0);
 }
 
-void protodec_msg_bin(unsigned char *buffer, int bufferlen, int appid_fi, int msg_start, time_t received_t, unsigned long mmsi)
+void protodec_msg_bin(unsigned char *buffer, unsigned int bufferlen, unsigned int appid_fi, int msg_start, time_t received_t, uint64_t mmsi)
 {
 	switch (appid_fi) {
 	case 11: // weather
@@ -377,7 +357,7 @@ static inline void update_range(struct demod_state_t *d, float lat, float lon)
  *	decode position packets (types 1,2,3)
  */
 
-void protodec_pos(struct demod_state_t *d, int bufferlen, time_t received_t, unsigned long mmsi)
+void protodec_pos(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
 {
 	int longitude, latitude;
 	unsigned short course, sog, heading;
@@ -416,9 +396,9 @@ void protodec_pos(struct demod_state_t *d, int bufferlen, time_t received_t, uns
 		update_range(d, (float) latitude / 600000.0, (float) longitude / 600000.0);
 }
 
-void protodec_4(struct demod_state_t *d, int bufferlen, time_t received_t, unsigned long mmsi)
+void protodec_4(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
 {
-	unsigned long day, hour, minute, second, year, month;
+	unsigned int day, hour, minute, second, year, month;
 	int longitude, latitude;
 	float longit, latit;
 
@@ -439,9 +419,8 @@ void protodec_4(struct demod_state_t *d, int bufferlen, time_t received_t, unsig
 		latitude |= 0xf8000000;
 	latit = ((float) latitude) / 10000.0 / 60.0;
 
-	printf(" date %ld-%ld-%ld time %02ld:%02ld:%02ld lat %.6f lon %.6f",
-		year, month, day, hour, minute,
-		second, latit, longit);
+	printf(" date %d-%d-%d time %02u:%02u:%02u lat %.6f lon %.6f",
+		   year, month, day, hour, minute, second, latit, longit);
 
 	if (cache_positions)
 		cache_position(received_t, mmsi, 0,
@@ -453,26 +432,22 @@ void protodec_4(struct demod_state_t *d, int bufferlen, time_t received_t, unsig
 		update_range(d, (float) latitude / 600000.0, (float) longitude / 600000.0);
 }
 
-void protodec_5(struct demod_state_t *d, int bufferlen, time_t received_t, unsigned long mmsi)
+void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
 {
-	int pos;
-	unsigned long imo;
+    unsigned int k, pos = 70, imo, shiptype;
 	char callsign[7];
 	char name[21];
 	char destination[21];
 	unsigned int A, B;
 	unsigned char C, D;
 	unsigned char draught;
-	int k;
 	int letter;
-	unsigned int shiptype;
 
 	/* get IMO number */
 	imo = protodec_henten(40, 30, d->rbuffer);
 	//printf("--- 5: mmsi %lu imo %lu\n", mmsi, imo);
 
 	/* get callsign */
-	pos = 70;
 	for (k = 0; k < 6; k++) {
 		letter = protodec_henten(pos, 6, d->rbuffer);
 		protodec_decode_sixbit_ascii(letter, callsign, k);
@@ -514,9 +489,7 @@ void protodec_5(struct demod_state_t *d, int bufferlen, time_t received_t, unsig
 	// printf("Length: %d\nWidth: %d\nDraught: %f\n",A+B,C+D,(float)draught/10);
 
 	printf(" name \"%s\" destination \"%s\" type %d length %d width %d draught %.1f",
-		name, destination, shiptype,
-		A + B, C + D,
-		(float) draught / 10.0);
+		   name, destination, shiptype, A + B, C + D, (float) draught * 0.1f);
 
 	if (cache_positions)
 		cache_vesseldata(received_t, mmsi, imo, callsign,
@@ -527,7 +500,7 @@ void protodec_5(struct demod_state_t *d, int bufferlen, time_t received_t, unsig
  *	6: addressed binary message
  */
 
-void protodec_6(struct demod_state_t *d, int bufferlen, time_t received_t, unsigned long mmsi)
+void protodec_6(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
 {
 	int sequence = protodec_henten(38, 2, d->rbuffer);
 	unsigned long dst_mmsi = protodec_henten(40, 30, d->rbuffer);
@@ -550,22 +523,17 @@ void protodec_6(struct demod_state_t *d, int bufferlen, time_t received_t, unsig
  *	13: Safety related acknowledge
  */
 
-void protodec_7_13(struct demod_state_t *d, int bufferlen, time_t received_t, unsigned long mmsi)
+void protodec_7_13(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
 {
-	unsigned long dst_mmsi;
+	uint64_t dst_mmsi;
+    unsigned int i, pos = 40;
 	int sequence;
-	int i;
-	int pos;
 
-	pos = 40;
-
-	printf(" buflen %d pos+32 %d", bufferlen, pos + 32);
+	printf(" buflen %u pos+32 %u", bufferlen, pos + 32);
 	for (i = 0; i < 4 && pos + 32 <= bufferlen; pos += 32) {
 		dst_mmsi = protodec_henten(pos, 30, d->rbuffer);
 		sequence = protodec_henten(pos + 30, 2, d->rbuffer);
-
-		printf(" ack %d (to %09ld seq %d)",
-			i+1, dst_mmsi, sequence);
+		printf(" ack %u (to %09lu seq %u)", i+1, dst_mmsi, sequence);
 		i++;
 	}
 }
@@ -574,7 +542,7 @@ void protodec_7_13(struct demod_state_t *d, int bufferlen, time_t received_t, un
  *	8: Binary broadcast
  */
 
-void protodec_8(struct demod_state_t *d, int bufferlen, time_t received_t, unsigned long mmsi)
+void protodec_8(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
 {
 	int appid = protodec_henten(40, 16, d->rbuffer);
 	int appid_dac = protodec_henten(40, 10, d->rbuffer);
@@ -587,7 +555,7 @@ void protodec_8(struct demod_state_t *d, int bufferlen, time_t received_t, unsig
 	}
 }
 
-void protodec_18(struct demod_state_t *d, int bufferlen, time_t received_t, unsigned long mmsi)
+void protodec_18(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
 {
 	int longitude, latitude;
 	unsigned short course, sog, heading;
@@ -609,25 +577,18 @@ void protodec_18(struct demod_state_t *d, int bufferlen, time_t received_t, unsi
 
 	heading = protodec_henten(124, 9, d->rbuffer);
 	printf(" lat %.6f lon %.6f course %.0f speed %.1f rateofturn %d navstat %d heading %d",
-		(float) latitude / 600000.0,
-		(float) longitude / 600000.0,
-		(float) course / 10.0, (float) sog / 10.0,
-		rateofturn, navstat, heading);
+		   (float) latitude / 600000.0f, (float) longitude / 600000.0f,
+           (float) course * 0.1f, (float) sog * 0.1f, rateofturn, navstat, heading);
 
 	if (cache_positions)
-		cache_position(received_t, mmsi, navstat,
-		(float) latitude / 600000.0,
-		(float) longitude / 600000.0,
-		heading,
-		(float) course / 10.0,
-		rateofturn,
-		(float) sog / 10.0);
+		cache_position(received_t, mmsi, navstat, (float) latitude / 600000.0, (float) longitude / 600000.0,
+		               heading, (float) course / 10.0, rateofturn, (float) sog / 10.0);
 
 	if (have_my_loc)
 		update_range(d, (float) latitude / 600000.0, (float) longitude / 600000.0);
 }
 
-void protodec_19(struct demod_state_t *d, int bufferlen, time_t received_t, unsigned long mmsi)
+void protodec_19(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
 {
 	int pos, k;
 	unsigned int A, B;
@@ -671,27 +632,23 @@ void protodec_19(struct demod_state_t *d, int bufferlen, time_t received_t, unsi
 	}
 }
 
-void protodec_20(struct demod_state_t *d, int bufferlen)
+void protodec_20(struct demod_state_t *d, unsigned int bufferlen)
 {
 	int ofs, slots, timeout, incr;
-	int i;
-	int pos;
-
-	pos = 40;
+    unsigned int i, pos = 40;
 
 	for (i = 0; i < 4 && pos + 30 < bufferlen; pos += 30) {
 		ofs = protodec_henten(pos, 12, d->rbuffer);
 		slots = protodec_henten(pos + 12, 4, d->rbuffer);
 		timeout = protodec_henten(pos + 12 + 4, 3, d->rbuffer);
 		incr = protodec_henten(pos + 12 + 4 + 3, 11, d->rbuffer);
-
 		printf(" reserve %d (ofs %d slots %d timeout %d incr %d)",
-			i+1, ofs, slots, timeout, incr);
+			   i+1, ofs, slots, timeout, incr);
 		i++;
 	}
 }
 
-void protodec_24(struct demod_state_t *d, int bufferlen, time_t received_t, unsigned long mmsi)
+void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
 {
 	int partnr;
 	int pos;
@@ -751,30 +708,21 @@ void protodec_24(struct demod_state_t *d, int bufferlen, time_t received_t, unsi
 		C = protodec_henten(132 + 9 + 9, 6, d->rbuffer);
 		D = protodec_henten(132 + 9 + 9 + 6, 6, d->rbuffer);
 
-		printf(" callsign \"%s\" type %d length %d width %d",
-			callsign, shiptype, A+B, C+D);
-
+		printf(" callsign \"%s\" type %d length %d width %d", callsign, shiptype, A+B, C+D);
 		if (cache_positions)
-			cache_vesseldatab(received_t, mmsi, callsign,
-				shiptype, A, B, C, D);
+			cache_vesseldatab(received_t, mmsi, callsign, shiptype, A, B, C, D);
 	}
 }
 
-#define NCHK_LEN 3
-
-void protodec_generate_nmea(struct demod_state_t *d, int bufferlen, int fillbits, time_t received_t)
+void protodec_generate_nmea(struct demod_state_t *d, unsigned int bufferlen, unsigned int fillbits, time_t received_t)
 {
-	int senlen;
-	int pos;
-	int k, letter;
-	int m;
-	unsigned char sentences, sentencenum, nmeachk;
-	char nchk[NCHK_LEN];
-	int serbuffer_l;
-
 	//6bits to nmea-ascii. One sentence len max 82char
 	//inc. head + tail.This makes inside datamax 62char multipart, 62 single
-	senlen = 61;		//this is normally not needed.For testing only. May be fixed number
+	unsigned int senlen = 61; //this is normally not needed.For testing only. May be fixed number
+    unsigned int k, pos = 0, m = 0, serbuffer_l;
+	int letter;
+	unsigned char sentences, sentencenum, nmeachk;
+
 	if (bufferlen <= (senlen * 6)) {
 		sentences = 1;
 	} else {
@@ -785,7 +733,6 @@ void protodec_generate_nmea(struct demod_state_t *d, int bufferlen, int fillbits
 	};
 	NMEA_DBG(printf("NMEA: %d sentences with max data of %d ascii chrs\n", sentences, senlen));
 	sentencenum = 0;
-	pos = 0;
 	do {
 		k = 13;		//leave room for nmea header
 		while (k < senlen + 13 && bufferlen > pos) {
@@ -800,7 +747,7 @@ void protodec_generate_nmea(struct demod_state_t *d, int bufferlen, int fillbits
 			k++;
 		}
 		NMEA_DBG(printf("NMEA: Drop from loop with k:%d pos:%d senlen:%d bufferlen\n",
-			k, pos, senlen, bufferlen));
+			            k, pos, senlen, bufferlen));
 		//set nmea trailer with 00 checksum (calculate later)
 		d->nmea[k] = 44;
 		d->nmea[k + 1] = 48;
@@ -827,14 +774,14 @@ void protodec_generate_nmea(struct demod_state_t *d, int bufferlen, int fillbits
 		//if multipart message it needs sequential id number
 		if (sentences > 1) {
 			NMEA_DBG(printf("NMEA: It is multipart (%d/%d), add sequence number (%d) to header\n",
-				sentences, sentencenum, d->seqnr));
+				            sentences, sentencenum, d->seqnr));
 			d->nmea[10] = d->seqnr + 48;
 			d->nmea[11] = 44;
 			d->nmea[12] = 44;
 			//and if the last of multipart we need to show fillbits at trailer
 			if (sentencenum == sentences) {
 				NMEA_DBG(printf("NMEA: It is last of multipart (%d/%d), add fillbits (%d) to trailer\n",
-					sentences, sentencenum, fillbits));
+					            sentences, sentencenum, fillbits));
 				d->nmea[k + 1] = 48 + fillbits;
 			}
 		} else {	//else put channel A & no seqnr to keep equal lenght (foo!)
@@ -846,43 +793,40 @@ void protodec_generate_nmea(struct demod_state_t *d, int bufferlen, int fillbits
 		//strcpy(nmea,"!AIVDM,1,1,,,");
 		//calculate xor checksum in hex for nmea[0] until nmea[m]='*'(42)
 		nmeachk = d->nmea[0];
-		m = 1;
 		while (d->nmea[m] != 42) {	//!="*"
 			nmeachk = nmeachk ^ d->nmea[m];
 			m++;
 		}
+
 		// convert calculated checksum to 2 digit hex there are 00 as base
 		// so if only 1 digit put it to later position to get 0-header 01,02...
-		nchk[0] = 0;
-		nchk[1] = 0;
-		snprintf(nchk, NCHK_LEN, "%X", nmeachk);
-		if (nchk[1] == 0) {
-			d->nmea[k + 4] = nchk[0];
+		if (nmeachk <= 0x0F) {
+			d->nmea[k + 4] = hex[nmeachk & 0x0f];
 		} else {
-			d->nmea[k + 3] = nchk[0];
-			d->nmea[k + 4] = nchk[1];
+			d->nmea[k + 3] = hex[((nmeachk >> 4) & 0x0f)];
+			d->nmea[k + 4] = hex[((nmeachk >> 0) & 0x0f)];
 		}
 		//In final. Add header "!" and trailer <lf>
 		// here it could be sent to /dev/ttySx
-		serbuffer_l = snprintf(d->serbuffer, SERBUFFER_LEN, "!%s\n", d->nmea);
-		if (d->serial)
-			serial_write(d->serial, d->serbuffer, serbuffer_l);
+        d->nmea[k + 5] = '\n';
+        d->nmea[k + 6] = '\0';
+		serbuffer_l = strlen(d->nmea);
         if (d->nmea_out_fd != -1)
-            write(d->nmea_out_fd, d->serbuffer, serbuffer_l);
+            write(d->nmea_out_fd, d->nmea, serbuffer_l);
 		NMEA_DBG(printf("NMEA: End of nmea->ascii-loop with sentences:%d sentencenum:%d\n", sentences, sentencenum));
 	} while (sentencenum < sentences);
 }
 
-void protodec_getdata(int bufferlen, struct demod_state_t *d)
+void protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 {
 	unsigned char type = protodec_henten(0, 6, d->rbuffer);
-	if (type < 1 || type > MAX_AIS_PACKET_TYPE /* 9 */)
-		return;
-	unsigned long mmsi = protodec_henten(8, 30, d->rbuffer);
-	int fillbits = 0;
-	int k;
+	uint64_t mmsi = protodec_henten(8, 30, d->rbuffer);
+	unsigned int k, fillbits = 0;
 	time_t received_t;
 	time(&received_t);
+
+	if (type < 1 || type > MAX_AIS_PACKET_TYPE /* 9 */)
+		return;
 
 	DBG(printf("Bufferlen: %d,", bufferlen));
 
@@ -964,10 +908,9 @@ void protodec_getdata(int bufferlen, struct demod_state_t *d)
 	printf(" (!%s)\n", d->nmea);
 }
 
-void protodec_decode(char *in, int count, struct demod_state_t *d)
+void protodec_decode(char *in, unsigned int count, struct demod_state_t *d)
 {
-	int i = 0;
-	int bufferlength, correct;
+	unsigned int i = 0, bufferlength, correct;
 
 	while (i < count) {
 		switch (d->state) {
@@ -990,9 +933,9 @@ void protodec_decode(char *in, int count, struct demod_state_t *d)
 						d->bitstuff = 1;
 						d->antallenner = 0;
 					}
-
-				} else
+				} else {
 					d->antallenner = 0;
+                }
 
 				DBG(printf("%d", in[i]));
 
@@ -1038,7 +981,6 @@ void protodec_decode(char *in, int count, struct demod_state_t *d)
 					} else {
 						d->nstartsign++;
 					}
-
 				} else { //To nuller har kommet etter hverandre
 					if (d->nstartsign == 0) {
 						d->nstartsign = 1;
@@ -1064,7 +1006,6 @@ void protodec_decode(char *in, int count, struct demod_state_t *d)
 				} else {
 					protodec_reset(d);
 				}
-
 			} else if (in[i] == 0) {
 				protodec_reset(d);
 			}
@@ -1074,22 +1015,21 @@ void protodec_decode(char *in, int count, struct demod_state_t *d)
 		case ST_STOPSIGN:
 			bufferlength = d->bufferpos - 6 - 16;
 			if (in[i] == 0 && bufferlength > 0) {
-				DBG(printf("%d\n\nFrame received OK.  %d bits\n",
-					in[i], bufferlength));
+				DBG(printf("%d\n\nFrame received OK. %u bits\n", in[i], bufferlength));
 				correct = protodec_calculate_crc(bufferlength, d);
 				if (correct) {
-					DBG(printf("CRC Checksum correct! Frame Successfully Received!!!\n"));
+					printf("CRC Checksum correct!\n");
 					d->receivedframes++;
-					protodec_getdata(bufferlength, d);
 				} else {
-					DBG(printf("CRC Checksum FALSE!!!\n"));
+					printf("CRC Checksum incorrect!!!\n");
 					d->lostframes++;
 				}
-				DBG(printf("_________________________________________________________\n\n"));
+				protodec_getdata(bufferlength, d);
 			} else {
-				DBG(printf("\n\nERROR in Frame\n__________________________________________________________\n\n"));
+				DBG(printf("\n\nERROR in Frame\n"));
 				d->lostframes2++;
 			}
+			DBG(printf("_________________________________________________________\n\n"));
 			protodec_reset(d);
 			break;
 
