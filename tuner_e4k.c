@@ -136,24 +136,18 @@ static int closest_arr_idx(const uint32_t *arr, unsigned int arr_size, uint32_t 
 	return bi;
 }
 
-/* IF RC Filter */
-static const uint32_t ifrc_filter_bw[] = {
-	KHZ(21400), KHZ(21000), KHZ(17600), KHZ(14700),
-	KHZ(12400), KHZ(10600), KHZ(9000), KHZ(7700),
-	KHZ(6400), KHZ(5300), KHZ(4400), KHZ(3400),
-	KHZ(2600), KHZ(1800), KHZ(1200), KHZ(1000)
+/* IF RC Filter. Values in kHz. */
+static const uint16_t ifrc_filter_bw[] = {
+    1000, 1200,  1800,  2600,  3400,  4400,  5300,  6400,
+    7700, 9000, 10600, 12400, 14700, 17600, 21000, 21400
 };
 
-/* IF Channel Filter */
-static const uint32_t ifch_filter_bw[] = {
-	KHZ(5500), KHZ(5300), KHZ(5000), KHZ(4800),
-	KHZ(4600), KHZ(4400), KHZ(4300), KHZ(4100),
-	KHZ(3900), KHZ(3800), KHZ(3700), KHZ(3600),
-	KHZ(3400), KHZ(3300), KHZ(3200), KHZ(3100),
-	KHZ(3000), KHZ(2950), KHZ(2900), KHZ(2800),
-	KHZ(2750), KHZ(2700), KHZ(2600), KHZ(2550),
-	KHZ(2500), KHZ(2450), KHZ(2400), KHZ(2300),
-	KHZ(2280), KHZ(2240), KHZ(2200), KHZ(2150)
+/* IF Channel Filter. Values in kHz. */
+static const uint16_t ifch_filter_bw[] = {
+	5500, 5300, 5000, 4800, 4600, 4400, 4300, 4100,
+	3900, 3800, 3700, 3600, 3400, 3300, 3200, 3100,
+	3000, 2950, 2900, 2800, 2750, 2700, 2600, 2550,
+	2500, 2450, 2400, 2300, 2280, 2240, 2200, 2150
 };
 
 /*! \brief Set the filter band-width of any of the IF filters
@@ -168,10 +162,26 @@ int e4k_if_filter_bw_set(struct e4k_state *e4k, uint8_t filter, uint32_t bandwid
     uint8_t mask = 0x0f;
 
     if (filter == E4K_IF_FILTER_RC) {
-	    bw_idx = closest_arr_idx(ifrc_filter_bw, 16, bandwidth);
+        if (bandwidth < 1000) {
+            bw_idx = 0;
+        } else {
+            for (bw_idx = 1; bw_idx < 16; bw_idx++) {
+                if (ifrc_filter_bw[bw_idx] > bandwidth)
+                    break;
+            }
+        }
+        bw_idx = (15 - bw_idx);
     } else if (filter == E4K_IF_FILTER_CHAN) {
-	    bw_idx = closest_arr_idx(ifch_filter_bw, 32, bandwidth);
-        mask |= 0x10;
+        if (bandwidth < 2150) {
+            bw_idx = 0;
+        } else {
+            for (bw_idx = 1; bw_idx < 32; bw_idx++) {
+                if (ifch_filter_bw[31 - bw_idx] > bandwidth)
+                    break;
+            }
+            mask |= 0x10;
+        }
+        bw_idx = (31 - bw_idx);
     } else {
         return -1;
     }
@@ -184,13 +194,13 @@ int e4k_if_filter_bw_set(struct e4k_state *e4k, uint8_t filter, uint32_t bandwid
  *  \param[in] on 1=filter enabled, 0=filter disabled
  *  \returns 0 success, negative errors
  */
-int e4k_if_filter_chan_enable(struct e4k_state *e4k, int on)
+int e4k_if_filter_chan_enable(struct e4k_state *e4k, unsigned int on)
 {
 	return e4k_reg_set_mask(e4k, E4K_REG_FILT3, E4K_FILT3_DISABLE,
 	                        on ? 0 : E4K_FILT3_DISABLE);
 }
 
-int e4k_if_filter_bw_get(struct e4k_state *e4k, uint8_t filter)
+int32_t e4k_if_filter_bw_get(struct e4k_state *e4k, uint8_t filter)
 {
 	int rc;
 
@@ -233,33 +243,22 @@ int e4k_if_filter_bw_get(struct e4k_state *e4k, uint8_t filter)
 struct pll_settings {
 	uint32_t freq;
 	uint8_t reg_synth7;
-	uint8_t mult;
+	uint8_t mult_2;
+    uint8_t mult_3;
 };
 
+/* {KHZ(81200),	(1 << 3) | 6,	40}, // 5 * 2^3 */
 static const struct pll_settings pll_vars[] = {
-	{KHZ(72400),	(1 << 3) | 7,	48},
-	{KHZ(81200),	(1 << 3) | 6,	40},
-	{KHZ(108300),	(1 << 3) | 5,	32},
-	{KHZ(162500),	(1 << 3) | 4,	24},
-	{KHZ(216600),	(1 << 3) | 3,	16},
-	{KHZ(325000),	(1 << 3) | 2,	12},
-	{KHZ(350000),	(1 << 3) | 1,	8},
-	{KHZ(432000),	(0 << 3) | 3,	8},
-	{KHZ(667000),	(0 << 3) | 2,	6},
-	{KHZ(1200000),	(0 << 3) | 1,	4}
+	{KHZ(72400),	(1 << 3) | 7,	4, 3},
+	{KHZ(108300),	(1 << 3) | 5,	5, 1},
+	{KHZ(162500),	(1 << 3) | 4,	3, 3},
+	{KHZ(216600),	(1 << 3) | 3,	4, 1},
+	{KHZ(325000),	(1 << 3) | 2,	2, 3},
+	{KHZ(350000),	(1 << 3) | 1,	3, 1},
+	{KHZ(432000),	(0 << 3) | 3,	3, 1},
+	{KHZ(667000),	(0 << 3) | 2,	1, 3},
+	{KHZ(1200000),	(0 << 3) | 1,   2, 1}
 };
-
-static int is_fvco_valid(uint32_t fvco_z)
-{
-	/* check if the resulting fosc is valid */
-	if (fvco_z/1000 < E4K_FVCO_MIN_KHZ ||
-	    fvco_z/1000 > E4K_FVCO_MAX_KHZ) {
-		rtlsdr_printf("[E4K] Fvco %u invalid\n", fvco_z);
-		return 0;
-	}
-
-	return 1;
-}
 
 static int is_fosc_valid(uint32_t fosc)
 {
@@ -296,22 +295,16 @@ static uint64_t compute_fvco(uint32_t f_osc, uint8_t z, uint16_t x)
 	fvco_z = (uint64_t)f_osc * z;
 
 #if 0
-	if (!is_fvco_valid(fvco_z))
+	/* check if the resulting fosc is valid */
+	if (fvco_z/1000 < E4K_FVCO_MIN_KHZ || fvco_z/1000 > E4K_FVCO_MAX_KHZ) {
+		rtlsdr_printf("[E4K] Fvco %u invalid\n", fvco_z);
 		return 0;
+	}
 #endif
 
 	fvco_x = ((uint64_t)f_osc * x) / E4K_PLL_Y;
 	fvco = fvco_z + fvco_x;
 	return fvco;
-}
-
-static uint32_t compute_flo(uint32_t f_osc, uint8_t z, uint16_t x, uint8_t r)
-{
-	uint64_t fvco = compute_fvco(f_osc, z, x);
-	if (fvco == 0)
-		return -1;
-
-	return fvco / r;
 }
 
 static int e4k_band_set(struct e4k_state *e4k, uint8_t band)
@@ -348,10 +341,10 @@ static int e4k_band_set(struct e4k_state *e4k, uint8_t band)
 uint32_t e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
 {
     uint32_t i, x, fosc = e4k->fosc;
-	uint8_t r = 2, r_idx = 0;
+	uint8_t r_2 = 1, r_3 = 1, r_idx = 0;
     uint8_t filt1 = 0, band = 0;
-	uint64_t intended_fvco, remainder, z = 0;
-	int flo;
+	uint64_t fvco, intended_fvco, remainder, z = 0;
+    uint32_t flo;
 
 	if (!is_fosc_valid(fosc))
 		return 0;
@@ -360,15 +353,16 @@ uint32_t e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
 		if(freq < pll_vars[i].freq) {
 			//three_phase_mixing = (pll_vars[i].reg_synth7 & 0x08) ? 1 : 0;
 			r_idx = pll_vars[i].reg_synth7;
-			r = pll_vars[i].mult;
+			r_2 = pll_vars[i].mult_2;
+			r_3 = pll_vars[i].mult_3;
 			break;
 		}
 	}
 
-	//rtlsdr_printf("[E4K] Fint=%u, R=%u\n", freq, r);
+	//rtlsdr_printf("[E4K] Fint=%u, R=2^%u * %u\n", freq, r_2, r_3);
 
 	/* flo(max) = 1700MHz, R(max) = 48, we need 64bit! */
-	intended_fvco = (uint64_t)freq * r;
+	intended_fvco = (uint64_t)freq * (1ULL << r_2) * r_3;
 	if (intended_fvco < KHZ(E4K_FVCO_MIN_KHZ)) {
 		intended_fvco = KHZ(E4K_FVCO_MIN_KHZ);
 	} else if (intended_fvco > KHZ(E4K_FVCO_MAX_KHZ)) {
@@ -385,9 +379,17 @@ uint32_t e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
 	x = (remainder * E4K_PLL_Y) / fosc;
 	/* x(max) as result of this computation is 65536 */
 
-	flo = compute_flo(fosc, z, x, r);
+    rtlsdr_printf("[E4K] z=%lu, x = %u\n", z, x);
 
-    e4k->fosc = fosc;
+	fvco = compute_fvco(fosc, z, x);
+    if (fvco == 0) {
+        flo = -1;
+    } else {
+	    flo = (fvco >> r_2);
+        if (r_3 == 3)
+            flo /= 3;
+    }
+
 	//e4k->vco.flo = flo;
 	//e4k->vco.intended_flo = freq;
 
@@ -435,111 +437,25 @@ uint32_t e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
 /***********************************************************************
  * Gain Control */
 
-static const int8_t if_stage1_gain[] = {
-	-3, 6
-};
-
-static const int8_t if_stage23_gain[] = {
-	0, 3, 6, 9
-};
-
-/* Was 0, 1, 2, 2. Datasheet says 0, 1, 2, 3 which is *much* more sensible/plausible */ 
-static const int8_t if_stage4_gain[] = {
-	0, 1, 2, 3
-};
-
-static const int8_t if_stage56_gain[] = {
-	3, 6, 9, 12, 15, 15, 15, 15
-};
-
-static const int8_t *if_stage_gain[] = {
-	0,
-	if_stage1_gain,
-	if_stage23_gain,
-	if_stage23_gain,
-	if_stage4_gain,
-	if_stage56_gain,
-	if_stage56_gain
-};
-
-static const uint8_t if_stage_gain_len[] = {
-	0,
-	ARRAY_SIZE(if_stage1_gain),
-	ARRAY_SIZE(if_stage23_gain),
-	ARRAY_SIZE(if_stage23_gain),
-	ARRAY_SIZE(if_stage4_gain),
-	ARRAY_SIZE(if_stage56_gain),
-	ARRAY_SIZE(if_stage56_gain)
-};
-
-static const struct reg_field if_stage_gain_regs[] = {
-	{ 0, 0, 0 },
-	{ 0x16, 0, 0x01 },
-	{ 0x16, 1, 0x03 },
-	{ 0x16, 3, 0x03 },
-	{ 0x16, 5, 0x03 },
-	{ 0x17, 0, 0x07 },
-	{ 0x17, 3, 0x07 }
-};
-
-static int find_stage_gain(uint8_t stage, int8_t val)
-{
-	const int8_t *arr;
-	int i;
-
-	if (stage >= ARRAY_SIZE(if_stage_gain))
-		return -1;
-
-	arr = if_stage_gain[stage];
-
-	for (i = 0; i < if_stage_gain_len[stage]; i++) {
-		if (arr[i] == val)
-			return i;
-	}
-	return -1;
-}
-
-/*! \brief Set the gain of one of the IF gain stages
- *  \param [e4k] handle to the tuner chip
- *  \param [stage] number of the stage (1..6)
- *  \param [value] gain value in dB
- *  \returns 0 on success, negative in case of error
- */
-int e4k_if_gain_set(struct e4k_state *e4k, uint8_t stage, int8_t value)
-{
-	int rc;
-	const struct reg_field *field;
-
-	rc = find_stage_gain(stage, value);
-	if (rc < 0)
-		return rc;
-
-	/* compute the bit-mask for the given gain field */
-	field = &if_stage_gain_regs[stage];
-	rc = e4k_reg_set_mask(e4k, field->reg, field->mask << field->shift, rc << field->shift);
-
-#if 0
-	/* Enable automatic IF gain mode switching */
-	e4k_reg_set_mask(e4k, 0x21, 0x1, E4K_AGC8_SENS_LIN_AUTO);
-#endif
-    return rc;
-}
-
 /*
  * According to the datasheet, 00x0 maps to -5dB and 00x1 maps to -2.5dB
  * We use 0010 and 0011 instead of 0000 and 0001 respectively here,
  * to make the mapping from gain to index a simple affine shift,
  * and thus, get rid of a lookup table.
+ * Also, everywhere in this code we add the +5dB base mixer gain
+ * (the datasheet says 4dB but 5dB better matches every dongle I've tested,
+ *  and makes a lot more sense here, actually)
+ * to the LNA gain, thus making the LNA gain strictly positive and both
+ * LNA and mixer gain start at 0.
  */
 
-int e4k_set_lna_gain(struct e4k_state *e4k, int32_t gain)
+int e4k_set_lna_gain(struct e4k_state *e4k, uint32_t gain)
 {
 	uint32_t i;
 	for(i = 0; i < 13; ++i) {
-        int32_t lna_gain = 25*i;
+        uint32_t lna_gain = 5*i;
 		if(lna_gain >= gain) {
-			e4k_reg_set_mask(e4k, 0x14, 0xf, i+2);
-			return gain;
+			return e4k_reg_set_mask(e4k, 0x14, 0xf, i+2);
 		}
 	}
 	return -1;
@@ -547,8 +463,35 @@ int e4k_set_lna_gain(struct e4k_state *e4k, int32_t gain)
 
 int e4k_set_mixer_gain(struct e4k_state *e4k, uint8_t value)
 {
-	uint8_t bit = ((value > 5) ? 1 : 0);
+	uint8_t bit = ((value > 0) ? 1 : 0);
 	return e4k_reg_set_mask(e4k, 0x15, 1, bit);
+}
+
+int e4k_set_agc_params(struct e4k_state *e4k, uint16_t lna_agc, uint8_t mixer_agc, uint8_t agc_rate)
+{
+    int rc;
+
+    /* LNA */
+	rc = e4k_reg_write(e4k, 0x1d, 0x10); /* High threshold */
+    if (rc < 0)
+        return rc;
+
+	rc = e4k_reg_write(e4k, 0x1e, 0x04); /* Low threshold */
+    if (rc < 0)
+        return rc;
+
+    /* Mixer */
+    rc = e4k_reg_set_mask(e4k, 0x20, 0x1e, mixer_agc); /* 0x0e */
+    if (rc < 0)
+        return rc;
+
+    /* AGC Clock
+     * Settings: 0x06 -> 260hz, 0x08 -> 65hz,
+     *           0x0a -> 16hz,  0x04 -> 1kHz
+     */
+    agc_rate += 2;
+	rc = e4k_reg_set_mask(e4k, 0x1f, 0x0f, agc_rate << 1);
+    return rc;
 }
 
 int e4k_enable_manual_gain(struct e4k_state *e4k, uint8_t manual)
@@ -584,11 +527,9 @@ int e4k_read_gain(struct e4k_state *e4k, unsigned int *strength)
     return (rssi - lna_gain);
 }
 
-int e4k_commonmode_set(struct e4k_state *e4k, int8_t value)
+int e4k_commonmode_set(struct e4k_state *e4k, uint8_t value)
 {
-	if(value < 0)
-		return -1;
-	else if(value > 7)
+	if(value > 7)
 		return -1;
 
 	return e4k_reg_set_mask(e4k, 0x2f, 7, value);
@@ -600,11 +541,21 @@ int e4k_commonmode_set(struct e4k_state *e4k, int8_t value)
 /*! \brief Perform a DC offset calibration right now
  *  \param [e4k] handle to the tuner chip
  */
-int e4k_dc_offset_calibrate(struct e4k_state *e4k)
+int e4k_dc_offset_calibrate(struct e4k_state *e4k, uint8_t *offs_i, uint8_t *offs_q, uint8_t *offs_range)
 {
+    int result = 0;
+
 	/* make sure the DC range detector is enabled */
 	e4k_reg_set_mask(e4k, 0x2d, E4K_DC5_RANGE_DET_EN, E4K_DC5_RANGE_DET_EN);
-	return e4k_reg_write(e4k, 0x29, 0x01);
+    result = e4k_reg_write(e4k, 0x29, 0x01);
+    if (result < 0)
+        return result;
+
+	/* extract I/Q offset and range values */
+	*offs_i = e4k_reg_read(e4k, 0x2a) & 0x3f;
+	*offs_q = e4k_reg_read(e4k, 0x2b) & 0x3f;
+	*offs_range  = e4k_reg_read(e4k, 0x2c);
+    return 0;
 }
 
 int e4k_manual_dc_offset(struct e4k_state *e4k, uint8_t iofs, uint8_t irange, uint8_t qofs, uint8_t qrange)
@@ -690,12 +641,7 @@ int e4k_init(struct e4k_state *e4k)
 	e4k_reg_set_mask(e4k, 0x2d, 0x03, 0);
 
 	/* Perform DC offset calibration */
-	e4k_dc_offset_calibrate(e4k);
-
-	/* extract I/Q offset and range values */
-	offs_i = e4k_reg_read(e4k, 0x2a) & 0x3f;
-	offs_q = e4k_reg_read(e4k, 0x2b) & 0x3f;
-	offs_range  = e4k_reg_read(e4k, 0x2c);
+	e4k_dc_offset_calibrate(e4k, &offs_i, &offs_q, &offs_range);
 
 	rtlsdr_printf("[E4K] DC offset: I=%u/%u, Q=%u/%u\n",
 			      ((offs_range >> 0) & 0x03), offs_i,
@@ -705,15 +651,12 @@ int e4k_init(struct e4k_state *e4k)
 	e4k_reg_write(e4k, 0x70, 0x01);
 	e4k_reg_write(e4k, 0x71, 0x01);
 
-	/* Set LNA/Mixer AGC parameters */
-	e4k_reg_write(e4k, 0x1d, 0x10); /* High threshold */
-	e4k_reg_write(e4k, 0x1e, 0x04);	/* Low threshold */
-
-    /* AGC Clock
-     * Settings: 0x06 -> 260hz, 0x08 -> 65hz,
-     *           0x0a -> 16hz,  0x04 -> 1kHz
+    /* 0x10 - High threshold
+     * 0x04 - Low threshold
+     * 0x0e - Mixer threshold
      */
-	e4k_reg_write(e4k, 0x1f, 0x1a); /* Bit 4 high starts LNA calibration */
+    e4k_set_agc_params(e4k, 0x1004, 0x0e, 0x03);
+    e4k_reg_set_mask(e4k, 0x1f, 0x10, 0x10); /* Bit 4 high starts LNA calibration */
 
 	/* Set LNA/Mixer gain control mode to manual */
 	e4k_enable_manual_gain(e4k, 1);
@@ -724,14 +667,6 @@ int e4k_init(struct e4k_state *e4k)
     /* Disable LNA gain enhancement */
 	e4k_reg_set_mask(e4k, 0x24, 0x7, 0);
 
-	/* Select moderate gain levels */
-	e4k_if_gain_set(e4k, 1, 6);
-	e4k_if_gain_set(e4k, 2, 6);
-	e4k_if_gain_set(e4k, 3, 0);
-	e4k_if_gain_set(e4k, 4, 0);
-	e4k_if_gain_set(e4k, 5, 9);
-	e4k_if_gain_set(e4k, 6, 9);
-
     /* Set the mixer filter to 27MHz, so as to not worry about having to change it again.
      * In my experience, this makes almost no difference w.r.t having it at 1.9MHz.
      */
@@ -741,10 +676,10 @@ int e4k_init(struct e4k_state *e4k)
      * whoa there, let's not get absurd with the RC filter.
      * approximately slightly-more-than-doubled it so I now actually get most of a raw IQ dump @ 2.4MHz samplerate
      */
-	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_RC, KHZ(2600));
+	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_RC, 2600);
     e4k_reg_set_mask(e4k, 0x7b, 0x01, 0x01);
     e4k->fil_cal_code = e4k_reg_read(e4k, 0x7b);
-	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_CHAN, KHZ(2150));
+	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_CHAN, 2150);
 	e4k_if_filter_chan_enable(e4k, 1);
 
 	return 0;

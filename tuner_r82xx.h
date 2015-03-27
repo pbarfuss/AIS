@@ -37,7 +37,7 @@
 #define R82XX_DEFAULT_IF_BW     2000
 
 #define REG_SHADOW_START	5
-#define NUM_REGS		30
+#define NUM_REGS		31
 #define VER_NUM			49
 
 #define CHIP_R820T 0x00
@@ -72,9 +72,10 @@ struct r82xx_freq_range {
 int r82xx_standby(struct r82xx_priv *priv);
 int r82xx_init(struct r82xx_priv *priv);
 int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq);
-int r82xx_enable_manual_gain(struct r82xx_priv *priv, int set_manual_gain);
-int r82xx_set_agc_params(struct r82xx_priv *priv, uint8_t lna_agc, uint8_t mixer_agc, uint8_t agc_rate);
-int r82xx_set_gain(struct r82xx_priv *priv, int gain);
+int r82xx_enable_manual_gain(struct r82xx_priv *priv, unsigned int set_manual_gain);
+int r82xx_set_agc_params(struct r82xx_priv *priv, uint16_t lna_agc, uint8_t mixer_agc, uint8_t agc_rate);
+int r82xx_set_lna_gain(struct r82xx_priv *priv, unsigned int gain);
+int r82xx_set_mixer_gain(struct r82xx_priv *priv, unsigned int gain);
 int r82xx_set_bw(struct r82xx_priv *priv, uint32_t bw);
 int r82xx_set_dither(struct r82xx_priv *priv, int dither);
 

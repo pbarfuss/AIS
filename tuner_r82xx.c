@@ -33,14 +33,22 @@
  */
 
 /* Those initial values start from REG_SHADOW_START */
+/* modifications: r5[7] -> 0 (lt on), r31[7] -> 0 (lt att enable) */
+/* r10[7] -> 0 (channel filter off as all it does is seem to add noise (WTF?)) */
+/* r6[5:4] -> 01 (+3db, 6mhz on - according to datasheet, this is +0db, 6mhz on) */
+/* r30[5] -> 1 (ext at lna max-1) */
+/* (r30[6]=1 is channel filter extension enable) */
+/* r25[6:5]:min */
+/* r28 -> 0x24 (was 0x54) mixer top:13 , top-1, low-discharge */
+/* r29 -> 0xc5 (was 0xae) detect bw 3, lna top:0, predet top:2 */
+/* r30[4:0] -> 0x0e (was 0x0a) (LNA discharge current -> 14 (was 10)) */
+/* r12 -> 0x6b (ADC on, manual VGA control, fixed VGA gain (26.3 dB)) */
+/* r16[3] -> 0 (fref = xtal_freq) */
 static const uint8_t r82xx_init_array[NUM_REGS] = {
-	0x83, 0x32, 0x75,			/* 05 to 07 */
-	0xc0, 0x40, 0xd6, 0x6c,			/* 08 to 0b */
-	0x68, 0x63, 0x75, 0x68,			/* 0c to 0f */
-	0x6c, 0x83, 0x80, 0x00,			/* 10 to 13 */
-	0x0f, 0x00, 0xc0, 0x30,			/* 14 to 17 */
-	0x48, 0xcc, 0x60, 0x00,			/* 18 to 1b */
-	0x54, 0xae, 0x4a, 0xc0			/* 1c to 1f */
+	0x03, 0x12, 0x75, 0xc0, 0x40, 0x56, 0x6c, /* 05 to 0b */
+	0x6b, 0x63, 0x75, 0x68, 0x64, 0x83, 0x80, /* 0c to 12 */
+	0x00, 0x0f, 0x00, 0xc0, 0x30, 0x48, 0xec, /* 13 to 19 */
+	0x60, 0x00, 0x24, 0xc5, 0x6a, 0x40		  /* 1a to 1f */
 };
 
 /* Tuner frequency ranges */
@@ -135,58 +143,6 @@ static const struct r82xx_freq_range freq_ranges[] = {
 /*
  * I2C read/write code and shadow registers logic
  */
-static void shadow_store(struct r82xx_priv *priv, uint8_t reg, const uint8_t *val, int len)
-{
-	int r = reg - REG_SHADOW_START;
-
-	if (r < 0) {
-		len += r;
-		r = 0;
-	}
-	if (len <= 0)
-		return;
-	if (len > NUM_REGS - r)
-		len = NUM_REGS - r;
-
-	memcpy(&priv->regs[r], val, len);
-}
-
-static int r82xx_write(struct r82xx_priv *priv, uint8_t reg, const uint8_t *val, unsigned int len)
-{
-    uint8_t i2c_addr = (R820T_I2C_ADDR | (priv->rafael_chip == CHIP_R828D));
-	int rc, size, pos = 0;
-	uint8_t buf[NUM_REGS + 1];
-
-	/* Store the shadow registers */
-	shadow_store(priv, reg, val, len);
-
-	do {
-		if (len > R82XX_MAX_I2C_MSG_LEN - 1)
-			size = R82XX_MAX_I2C_MSG_LEN - 1;
-		else
-			size = len;
-
-		/* Fill I2C buffer */
-		buf[0] = reg;
-		memcpy(&buf[1], &val[pos], size);
-
-		rc = rtlsdr_i2c_write_fn(priv->rtl_dev, i2c_addr, buf, size + 1);
-		if (rc != size + 1) {
-			rtlsdr_printf("%s: i2c wr failed=%d reg=%02x len=%d\n",
-				   __FUNCTION__, rc, reg, size);
-			if (rc < 0)
-				return rc;
-			return -1;
-		}
-
-		reg += size;
-		len -= size;
-		pos += size;
-	} while (len > 0);
-
-	return 0;
-}
-
 static int r82xx_read_cache_reg(struct r82xx_priv *priv, int reg)
 {
 	reg -= REG_SHADOW_START;
@@ -199,9 +155,31 @@ static int r82xx_read_cache_reg(struct r82xx_priv *priv, int reg)
 
 static int r82xx_write_reg(struct r82xx_priv *priv, uint8_t reg, uint8_t val)
 {
+    uint8_t i2c_addr = (R820T_I2C_ADDR | (priv->rafael_chip == CHIP_R828D));
+	int rc;
+	uint8_t buf[2];
+
 	if (priv->reg_cache && r82xx_read_cache_reg(priv, reg) == val)
 		return 0;
-	return r82xx_write(priv, reg, &val, 1);
+
+	/* Store the shadow registers */
+    if (reg >= 0x05) {
+	    priv->regs[reg - 5] = val;
+    }
+
+	/* Fill I2C buffer */
+	buf[0] = reg;
+    buf[1] = val;
+
+	rc = rtlsdr_i2c_write_fn(priv->rtl_dev, i2c_addr, buf, 2);
+	if (rc != 2) {
+		rtlsdr_printf("%s: i2c wr failed=%d reg=0x%02x\n", __FUNCTION__, rc, reg);
+		if (rc < 0)
+			return rc;
+		return -1;
+	}
+
+	return 0;
 }
 
 static int r82xx_write_reg_mask(struct r82xx_priv *priv, uint8_t reg, uint8_t val, uint8_t bit_mask)
@@ -221,33 +199,24 @@ static uint8_t r82xx_bitrev(uint8_t byte)
 	return (lut[byte & 0xf] << 4) | lut[byte >> 4];
 }
 
-static int r82xx_read(struct r82xx_priv *priv, uint8_t reg, uint8_t *val, int len)
+static int r82xx_read_reg(struct r82xx_priv *priv, uint8_t reg, uint8_t *val)
 {
-	int rc, i;
+    int rc;
     uint8_t i2c_addr = (R820T_I2C_ADDR | (priv->rafael_chip == CHIP_R828D));
-	uint8_t buf[NUM_REGS + 1];
-	uint8_t *p = &buf[1];
-	buf[0] = reg;
+    uint8_t buf[5];
 
-	rc = rtlsdr_i2c_write_fn(priv->rtl_dev, i2c_addr, buf, 1);
-	if (rc < 1)
-		return rc;
+    rc = rtlsdr_i2c_read_fn(priv->rtl_dev, i2c_addr, buf, 5);
+    if (rc < 0) {
+        rtlsdr_printf("%s: i2c rd failed=%d reg=%02x\n",
+                      __FUNCTION__, rc, reg);
+        if (rc < 0)
+            return rc;
+        return -1;
+    }
 
-	rc = rtlsdr_i2c_read_fn(priv->rtl_dev, i2c_addr, p, len);
-
-	if (rc != len) {
-		rtlsdr_printf("%s: i2c rd failed=%d reg=%02x len=%d\n",
-			   __FUNCTION__, rc, reg, len);
-		if (rc < 0)
-			return rc;
-		return -1;
-	}
-
-	/* Copy data to the output buffer */
-	for (i = 0; i < len; i++)
-		val[i] = r82xx_bitrev(p[i]);
-
-	return 0;
+    /* Copy data to the output buffer */
+    *val = r82xx_bitrev(buf[reg]);
+    return 0;
 }
 
 /*
@@ -283,17 +252,8 @@ static int r82xx_set_mux(struct r82xx_priv *priv, uint32_t freq)
 	if (rc < 0)
 		return rc;
 
-	/* XTAL CAP & Drive */
-	rc = r82xx_write_reg_mask(priv, 0x10, 0x00, 0x0b);
-	if (rc < 0)
-		return rc;
-
-	rc = r82xx_write_reg_mask(priv, 0x08, 0x00, 0x3f);
-	if (rc < 0)
-		return rc;
-
-	rc = r82xx_write_reg_mask(priv, 0x09, 0x00, 0x3f);
-
+	rc  = r82xx_write_reg_mask(priv, 0x08, 0x00, 0x3f);
+	rc |= r82xx_write_reg_mask(priv, 0x09, 0x00, 0x3f);
 	return rc;
 }
 
@@ -310,15 +270,11 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	uint8_t div_num = 0;
 	uint8_t vco_power_ref = 2;
 	uint8_t ni, si, nint, vco_fine_tune, val;
-	uint8_t data[5];
+    uint8_t reg2 = 0;
 
 	/* Frequency in kHz */
 	freq_khz = (freq + 500) / 1000;
 	pll_ref = priv->xtal;
-
-	rc = r82xx_write_reg_mask(priv, 0x10, 0x00, 0x10);
-	if (rc < 0)
-		return rc;
 
 	/* set pll autotune = 128kHz */
 	rc = r82xx_write_reg_mask(priv, 0x1a, 0x00, 0x0c);
@@ -408,13 +364,11 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 
 	for (i = 0; i < 2; i++) {
 		/* Check if PLL has locked */
-		data[2] = 0;
-		rc = r82xx_read(priv, 0x00, data, 3);
+        reg2 = 0;
+		rc = r82xx_read_reg(priv, 0x02, &reg2);
 		if (rc < 0)
 			return rc;
-		if (data[2] & 0x40)
-			break;
-		if (i > 0)
+		if (reg2 & 0x40)
 			break;
 
 		/* Didn't lock. Increase VCO current */
@@ -423,7 +377,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 			return rc;
 	}
 
-	if (!(data[2] & 0x40)) {
+	if (!(reg2 & 0x40)) {
 		rtlsdr_printf("[r82xx] Failed to get PLL lock at %u Hz\n", freq);
 		return -42;
 	}
@@ -487,30 +441,28 @@ static int r82xx_filter_calibrate(struct r82xx_priv *priv) {
 }
 #endif
 
+/* IF Channel Filter. Values in kHz. */
+static const uint16_t ifch_filter_bw[] = {
+    1000, 1400, 1600, 1800, 2000, 2200, 2400, 2600,
+    2800, 3000, 3800, 4700
+};
+
 int r82xx_set_bw(struct r82xx_priv *priv, uint32_t bw) {
-    int rc;
-    uint32_t hpf = (R82XX_IF_FREQ - bw/2)/1000000U;
+    uint32_t hpf = (R82XX_IF_FREQ - bw/2);
     uint8_t hp_cor = 0x00;
 
-    if(hpf >= 47)      hp_cor = 0x00;    /*         5 MHz */
-    else if(hpf >= 38) hp_cor = 0x01;    /*         4 MHz */
-    else if(hpf >= 30) hp_cor = 0x02;    /* -12dB @ 2.25 MHz */
-    else if(hpf >= 28) hp_cor = 0x03;    /*  -8dB @ 2.25 MHz */
-    else if(hpf >= 26) hp_cor = 0x04;    /*  -4dB @ 2.25 MHz */
-    else if(hpf >= 24) hp_cor = 0x05;    /* -12dB @ 1.75 MHz */
-    else if(hpf >= 22) hp_cor = 0x06;    /*  -8dB @ 1.75 MHz */
-    else if(hpf >= 20) hp_cor = 0x07;    /*  -4dB @ 1.75 MHz */
-    else if(hpf >= 18) hp_cor = 0x08;    /* -12dB @ 1.25 MHz */
-    else if(hpf >= 16) hp_cor = 0x09;    /*  -8dB @ 1.25 MHz */
-    else if(hpf >= 14) hp_cor = 0x0A;    /*  -4dB @ 1.25 MHz */
-    else               hp_cor = 0x0B;
+    if (hpf < 1000) {
+        hp_cor = 0;
+    } else {
+        for (hp_cor = 1; hp_cor < 12; hp_cor++) {
+            if (ifch_filter_bw[hp_cor] > hpf)
+                break;
+        }
+    }
+    hp_cor = (0x0B - hp_cor);
 
     /* Set HP corner */
-    rc = r82xx_write_reg_mask(priv, 0x0b, hp_cor, 0x0f);
-    if (rc < 0)
-        return rc;
-
-    return 0;
+    return r82xx_write_reg_mask(priv, 0x0b, hp_cor, 0x0f);
 }
 
 int r82xx_set_dither(struct r82xx_priv *priv, int dither)
@@ -521,14 +473,14 @@ int r82xx_set_dither(struct r82xx_priv *priv, int dither)
 
 int r82xx_read_gain(struct r82xx_priv *priv, unsigned int *strength)
 {
-	uint8_t data[4];
+    uint8_t reg3 = 0;
 	int rc;
 
-	rc = r82xx_read(priv, 0x00, data, sizeof(data));
+	rc = r82xx_read_reg(priv, 0x03, &reg3);
 	if (rc < 0)
 		return rc;
 
-	rc = ((data[3] & 0x0f) << 1) + ((data[3] & 0xf0) >> 4);
+	rc = (((reg3 & 0xf0) << 1) + (reg3 & 0x0f));
 
     /* A higher gain at LNA means a lower signal strength */
     *strength = (45 - rc) << 4 | 0xff;
@@ -542,32 +494,21 @@ int r82xx_read_gain(struct r82xx_priv *priv, unsigned int *strength)
  * http://steve-m.de/projects/rtl-sdr/gain_measurement/r820t/
  */
 
-static const int r82xx_lna_gain_steps[]  = {
-	0, 9, 13, 40, 38, 13, 31, 22, 26, 31, 26, 14, 19, 5, 35, 13
+const unsigned int r82xx_lna_gain_steps[]  = {
+	0, 10, 13, 40, 38, 13, 31, 22, 26, 31, 26, 14, 19, 5, 35, 13
 };
 
-static const int r82xx_mixer_gain_steps[]  = {
-    0, 5, 10, 10, 19, 9, 10, 25, 17, 10, 8, 16, 13, 6, 3, -8
+static const unsigned int r82xx_lna_gain_values[16] = {
+    0, 2, 5, 13, 20, 23, 29, 33, 39, 45, 50, 53, 57, 58, 65, 67 
 };
 
-unsigned int r82xx_lna_gain_values[16] = {
-    0, 9, 22, 62, 100, 113, 144, 166, 192, 223, 249, 263, 282, 287, 322, 335,
-};
-
-/*
- *  According to the info in the register file, this should *actually* look like:
- *  0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150
- */
-unsigned int r82xx_mixer_gain_values[16] = {
-    0, 5, 15, 25, 44, 53, 63, 88, 105, 115, 123, 139, 152, 158, 161, 152
-};
-
-int r82xx_set_agc_params(struct r82xx_priv *priv, uint8_t lna_agc, uint8_t mixer_agc, uint8_t agc_rate)
+int r82xx_set_agc_params(struct r82xx_priv *priv, uint16_t lna_agc, uint8_t mixer_agc, uint8_t agc_rate)
 {
     int rc;
+    uint8_t lna_agc_internal = ((lna_agc >> 8) | (lna_agc & 0x0f));
 
     /* LNA */
-    rc = r82xx_write_reg(priv, 0x0d, lna_agc);
+    rc = r82xx_write_reg(priv, 0x0d, lna_agc_internal);
     if (rc < 0)
         return rc;
 
@@ -578,76 +519,56 @@ int r82xx_set_agc_params(struct r82xx_priv *priv, uint8_t lna_agc, uint8_t mixer
 
     /* AGC Clock
      * Settings: 0x30 -> 250hz, 0x20 -> 60hz,
-     *           0x10 -> 16hz(?), 0x00 -> 1kHz(?)
+     *           0x10 -> 16hz,  0x00 -> 1kHz
      */
+    agc_rate ^= ((agc_rate & 1) << 1); /* map 0x01 to 250hz and 0x03 to 16hz */
     rc = r82xx_write_reg_mask(priv, 0x1a, agc_rate << 4, 0x30);
     return rc;
 }
 
-int r82xx_enable_manual_gain(struct r82xx_priv *priv, int set_manual_gain)
+int r82xx_enable_manual_gain(struct r82xx_priv *priv, unsigned int set_manual_gain)
 {
     int rc;
-    uint8_t data[4];
+    uint8_t lna_manual = (set_manual_gain ? 0x10 : 0x00);
+    uint8_t mixer_manual = (set_manual_gain ? 0x00 : 0x10);
 
-    if (set_manual_gain) {
-        /* LNA auto off */
-        rc = r82xx_write_reg_mask(priv, 0x05, 0x10, 0x10);
-        if (rc < 0)
-            return rc;
-
-        /* Mixer auto off */
-        rc = r82xx_write_reg_mask(priv, 0x07, 0, 0x10);
-        if (rc < 0)
-            return rc;
-
-    } else {
-        /* LNA */
-        rc = r82xx_write_reg_mask(priv, 0x05, 0, 0x10);
-        if (rc < 0)
-            return rc;
-
-        /* Mixer */
-        rc = r82xx_write_reg_mask(priv, 0x07, 0x10, 0x10);
-        if (rc < 0)
-            return rc;
-    }
-
-    rc = r82xx_read(priv, 0x00, data, sizeof(data));
+    /* LNA */
+    rc = r82xx_write_reg_mask(priv, 0x05, lna_manual, 0x10);
     if (rc < 0)
         return rc;
 
-    /* lna   vth 0.84, vtl 0.64 */
-    /* mixer vth 1.04, vtl 0.84 */
-	/* agc clk 250hz */
-    r82xx_set_agc_params(priv, 0x70, 0x70, 0x03);
+    /* Mixer */
+    rc = r82xx_write_reg_mask(priv, 0x07, mixer_manual, 0x10);
+    if (rc < 0)
+        return rc;
+
     return 0;
 }
 
-int r82xx_set_gain(struct r82xx_priv *priv, int gain)
+int r82xx_set_lna_gain(struct r82xx_priv *priv, unsigned int gain)
 {
-	int i, rc, total_gain = 0;
-	uint8_t lna_index = 0, mix_index = 0;
+    int i;
+    uint8_t lna_index = 0;
 
-	for (i = 0; i < 15; i++) {
-		total_gain += r82xx_lna_gain_steps[++lna_index];
-		if (total_gain >= gain)
-			break;
-        total_gain += r82xx_mixer_gain_steps[++mix_index];
-		if (total_gain >= gain)
-			break;
-	}
+    for (i = 0; i < 15; i++) {
+        if (gain <= r82xx_lna_gain_values[lna_index])
+            break;
+        lna_index++;
+    }
 
 	/* set LNA gain */
-	rc = r82xx_write_reg_mask(priv, 0x05, lna_index, 0x0f);
-	if (rc < 0)
-		return rc;
+	return r82xx_write_reg_mask(priv, 0x05, lna_index, 0x0f);
+}
 
-     /* set Mixer gain */
-     rc = r82xx_write_reg_mask(priv, 0x07, mix_index, 0x0f);
-     if (rc < 0)
-        return rc;
+int r82xx_set_mixer_gain(struct r82xx_priv *priv, unsigned int gain)
+{
+    uint8_t mix_index = 0;
 
-	return 0;
+    if (gain > 24) gain = 24;
+    mix_index = (gain >> 1);
+
+    /* set Mixer gain */
+    return r82xx_write_reg_mask(priv, 0x07, mix_index, 0x0f);
 }
 
 int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
@@ -726,68 +647,42 @@ int r82xx_standby(struct r82xx_priv *priv)
 
 int r82xx_init(struct r82xx_priv *priv)
 {
-    int rc;
+    int i, rc;
     uint8_t fil_cal_code = 0x0f; /* seriously? */
 
 	/* TODO: R828D might need r82xx_xtal_check() */
     priv->disable_dither = 0;
 
-	/* Initialize registers */
-	priv->reg_cache = 0;
-	rc = r82xx_write(priv, 0x05, r82xx_init_array, sizeof(r82xx_init_array));
-    if (rc < 0) {
-		rtlsdr_printf("r82xx_init: failed initial register write failed=%d\n", rc);
-        return rc;
-    }
-
     /* Initialize the shadow registers */
+	priv->reg_cache = 0;
     memcpy(priv->regs, r82xx_init_array, sizeof(r82xx_init_array));
+
+	/* Initialize registers */
+    for (i = 5; i < 32; i++) {
+        rc = r82xx_write_reg(priv, i, r82xx_init_array[i - 5]);
+        if (rc < 0) {
+		    rtlsdr_printf("r82xx_init: failed initial register write failed=%d\n", rc);
+            return rc;
+        }
+    }
 
     /* Init Flag & Xtal_check Result, version */
     rc = r82xx_write_reg_mask(priv, 0x13, VER_NUM, 0x3f);
 	priv->input = 0x00;
 
-    rc |= r82xx_write_reg_mask(priv, 0x0a, 0x10 | fil_cal_code, 0x9f);
-
-    /* Set Img_R */
-    rc |= r82xx_write_reg_mask(priv, 0x07, 0x00, 0x80); /* image negative - needed? should be default & is never touched */
-
-    /* Set filt_3dB, V6MHz */
-    rc |= r82xx_write_reg_mask(priv, 0x06, 0x10, 0x30); /* +3db, 6mhz on - according to datasheet, this is +0db, 6mhz on */
-
-    /* channel filter extension */
-    rc |= r82xx_write_reg_mask(priv, 0x1e, 0x60, 0x60); /* r30[6]=1 ext enable; r30[5]:1 ext at lna max-1 */
-
-    /* Loop through */
-    rc |= r82xx_write_reg_mask(priv, 0x05, 0x00, 0x80); /* r5[7], lt on */
-
-    /* Loop through attenuation */
-    rc |= r82xx_write_reg_mask(priv, 0x1f, 0x00, 0x80); /* r31[7], lt att enable */
-
-    /* filter extension widest */
-    rc |= r82xx_write_reg_mask(priv, 0x0f, 0x00, 0x80); /* r15[7]: flt_ext_wide off */
-
-    /* RF poly filter current */
-    rc |= r82xx_write_reg_mask(priv, 0x19, 0x60, 0x60); /* r25[6:5]:min */
-
-    /* set fixed VGA gain (16.3 dB) */
-    rc |= r82xx_write_reg_mask(priv, 0x0c, 0x0b, 0x9f);
-
-    /* Set filt_cap */
-    rc |= r82xx_write_reg_mask(priv, 0x0b, 0x60, 0x60); /* +2cap */
-
-	rc |= r82xx_write_reg(priv, 0x1d, 0xc5); /* detect bw 3, lna top:0, predet top:2 */
-	rc |= r82xx_write_reg(priv, 0x1c, 0x24); /* mixer top:13 , top-1, low-discharge */
-
-	/* Air-IN only for Astrometa */
-	rc |= r82xx_write_reg_mask(priv, 0x05, 0x00, 0x60);
+    rc |= r82xx_write_reg_mask(priv, 0x0a, fil_cal_code, 0x0f);
 
 	/* 0: PRE_DECT off - datasheet seems to claim bit 7 is indeed turning something off when set to 0:
-     *    the narrowband LNA power detector (bit 6 is PRE_DECT off, bit 3 is Cable2 LNA off */
-	rc |= r82xx_write_reg_mask(priv, 0x06, 0x00, 0x48);
+     *    the narrowband LNA power detector (bit 6 is PRE_DECT off) */
+	//rc |= r82xx_write_reg_mask(priv, 0x06, 0x00, 0x40);
 
-	/* LNA discharge current */
-	rc |= r82xx_write_reg_mask(priv, 0x1e, 14, 0x1f);
+    /* default to automatic gain */
+    r82xx_enable_manual_gain(priv, 0);
+
+    /* lna   vth 0.84, vtl 0.64 */
+    /* mixer vth 1.04, vtl 0.84 */
+	/* agc clk 250hz */
+    r82xx_set_agc_params(priv, 0x7000, 0x70, 0x01);
 
 	if (rc < 0)
 		rtlsdr_printf("r82xx_init: failed=%d\n", rc);

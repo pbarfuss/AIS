@@ -54,8 +54,6 @@
 #define E4K_AGC7_MIX_GAIN_AUTO	(1 << 0)
 #define E4K_AGC7_GAIN_STEP_5dB	(1 << 5)
 
-#define E4K_AGC8_SENS_LIN_AUTO	(1 << 0)
-
 #define E4K_DC1_CAL_REQ		(1 << 0)
 
 #define E4K_DC5_I_LUT_EN	(1 << 0)
@@ -95,17 +93,17 @@ struct e4k_state {
 
 int e4k_init(struct e4k_state *e4k);
 int e4k_standby(struct e4k_state *e4k, int enable);
-int e4k_commonmode_set(struct e4k_state *e4k, int8_t value);
-int e4k_if_gain_set(struct e4k_state *e4k, uint8_t stage, int8_t value);
+int e4k_commonmode_set(struct e4k_state *e4k, uint8_t value);
 uint32_t e4k_tune_freq(struct e4k_state *e4k, uint32_t freq);
 int e4k_if_filter_bw_get(struct e4k_state *e4k, uint8_t filter);
 int e4k_if_filter_bw_set(struct e4k_state *e4k, uint8_t filter, uint32_t bandwidth);
-int e4k_if_filter_chan_enable(struct e4k_state *e4k, int on);
+int e4k_if_filter_chan_enable(struct e4k_state *e4k, unsigned int on);
 int e4k_manual_dc_offset(struct e4k_state *e4k, uint8_t iofs, uint8_t irange, uint8_t qofs, uint8_t qrange);
-int e4k_dc_offset_calibrate(struct e4k_state *e4k);
+int e4k_dc_offset_calibrate(struct e4k_state *e4k, uint8_t *offs_i, uint8_t *offs_q, uint8_t *offs_range);
 
-int e4k_set_lna_gain(struct e4k_state *e4k, int32_t gain);
-int e4k_set_mixer_gain(struct e4k_state *e4k, uint8_t value);
 int e4k_enable_manual_gain(struct e4k_state *e4k, uint8_t manual);
+int e4k_set_agc_params(struct e4k_state *e4k, uint16_t lna_agc, uint8_t mixer_agc, uint8_t agc_rate);
+int e4k_set_lna_gain(struct e4k_state *e4k, uint32_t gain);
+int e4k_set_mixer_gain(struct e4k_state *e4k, uint8_t value);
 
 #endif /* _E4K_TUNER_H */
