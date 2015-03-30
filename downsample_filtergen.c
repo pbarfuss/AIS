@@ -47,8 +47,7 @@ S6  =  1.58969099521155010221e-10; /* 0x3DE5D93A, 0x5ACFD57C */
 // Differs from libc sinf on [0, pi] by at most 0.0000170176f
 static inline float k_sinf(float x)
 {
-    float z;
-    z = x*x;
+    float z = x*x;
     return x*(1.0f+z*(S1+z*(S2+z*(S3+z*(S4+z*(S5+z*S6))))));
 }
 
