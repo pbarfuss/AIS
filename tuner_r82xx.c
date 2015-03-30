@@ -773,7 +773,6 @@ int r82xx_init(struct r82xx_priv *priv)
 	rc = r82xx_write(priv, 0x05, r82xx_init_array, sizeof(r82xx_init_array));
 	rc |= r82xx_init_tv_standard(priv);
 
-    r82xx_set_bw(priv, R82XX_DEFAULT_IF_BW);
 	/* r82xx_set_bw will always be called by rtlsdr_set_sample_rate,
 	   so there's no need to call r82xx_set_if_filter here */
 
