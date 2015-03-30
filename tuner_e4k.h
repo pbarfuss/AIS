@@ -28,8 +28,77 @@
 #define E4K_CHECK_ADDR	0x02
 #define E4K_CHECK_VAL	0x40
 
-#define E4K_REG_FILT2 0x11
-#define E4K_REG_FILT3 0x12
+enum e4k_reg {
+	E4K_REG_MASTER1		= 0x00,
+	E4K_REG_MASTER2		= 0x01,
+	E4K_REG_MASTER3		= 0x02,
+	E4K_REG_MASTER4		= 0x03,
+	E4K_REG_MASTER5		= 0x04,
+	E4K_REG_CLK_INP		= 0x05,
+	E4K_REG_REF_CLK		= 0x06,
+	E4K_REG_SYNTH1		= 0x07,
+	E4K_REG_SYNTH2		= 0x08,
+	E4K_REG_SYNTH3		= 0x09,
+	E4K_REG_SYNTH4		= 0x0a,
+	E4K_REG_SYNTH5		= 0x0b,
+	E4K_REG_SYNTH6		= 0x0c,
+	E4K_REG_SYNTH7		= 0x0d,
+	E4K_REG_SYNTH8		= 0x0e,
+	E4K_REG_SYNTH9		= 0x0f,
+	E4K_REG_FILT1		= 0x10,
+	E4K_REG_FILT2		= 0x11,
+	E4K_REG_FILT3		= 0x12,
+	// gap
+	E4K_REG_GAIN1		= 0x14,
+	E4K_REG_GAIN2		= 0x15,
+	E4K_REG_GAIN3		= 0x16,
+	E4K_REG_GAIN4		= 0x17,
+	// gap
+	E4K_REG_AGC1		= 0x1a,
+	E4K_REG_AGC2		= 0x1b,
+	E4K_REG_AGC3		= 0x1c,
+	E4K_REG_AGC4		= 0x1d,
+	E4K_REG_AGC5		= 0x1e,
+	E4K_REG_AGC6		= 0x1f,
+	E4K_REG_AGC7		= 0x20,
+	E4K_REG_AGC8		= 0x21,
+	// gap
+	E4K_REG_AGC11		= 0x24,
+	E4K_REG_AGC12		= 0x25,
+	// gap
+	E4K_REG_DC1		= 0x29,
+	E4K_REG_DC2		= 0x2a,
+	E4K_REG_DC3		= 0x2b,
+	E4K_REG_DC4		= 0x2c,
+	E4K_REG_DC5		= 0x2d,
+	E4K_REG_DC6		= 0x2e,
+	E4K_REG_DC7		= 0x2f,
+	E4K_REG_DC8		= 0x30,
+	// gap
+	E4K_REG_QLUT0		= 0x50,
+	E4K_REG_QLUT1		= 0x51,
+	E4K_REG_QLUT2		= 0x52,
+	E4K_REG_QLUT3		= 0x53,
+	// gap
+	E4K_REG_ILUT0		= 0x60,
+	E4K_REG_ILUT1		= 0x61,
+	E4K_REG_ILUT2		= 0x62,
+	E4K_REG_ILUT3		= 0x63,
+	// gap
+	E4K_REG_DCTIME1		= 0x70,
+	E4K_REG_DCTIME2		= 0x71,
+	E4K_REG_DCTIME3		= 0x72,
+	E4K_REG_DCTIME4		= 0x73,
+	E4K_REG_PWM1		= 0x74,
+	E4K_REG_PWM2		= 0x75,
+	E4K_REG_PWM3		= 0x76,
+	E4K_REG_PWM4		= 0x77,
+	E4K_REG_BIAS		= 0x78,
+	E4K_REG_CLKOUT_PWDN	= 0x7a,
+	E4K_REG_CHFILT_CALIB	= 0x7b,
+	E4K_REG_I2C_REG_ADDR	= 0x7d,
+	// FIXME
+};
 
 #define E4K_MASTER1_RESET	(1 << 0)
 #define E4K_MASTER1_NORM_STBY	(1 << 1)
@@ -54,6 +123,8 @@
 #define E4K_AGC7_MIX_GAIN_AUTO	(1 << 0)
 #define E4K_AGC7_GAIN_STEP_5dB	(1 << 5)
 
+#define E4K_AGC8_SENS_LIN_AUTO	(1 << 0)
+
 #define E4K_DC1_CAL_REQ		(1 << 0)
 
 #define E4K_DC5_I_LUT_EN	(1 << 0)
@@ -68,41 +139,41 @@
 
 #define E4K_AGC1_MOD_MASK	0xF
 
-enum e4k_agc_mode {
-	E4K_AGC_MOD_SERIAL		= 0x0,
-	E4K_AGC_MOD_IF_SERIAL_LNA_PWM	= 0x4,
-	E4K_AGC_MOD_IF_SERIAL_LNA_AUTON	= 0x9,
-	E4K_AGC_MOD_IF_SERIAL_LNA_SUPERV = 0xa,
-};
+#define E4K_AGC_MOD_SERIAL 0x0
+#define E4K_AGC_MOD_IF_SERIAL_LNA_PWM 0x4
+#define E4K_AGC_MOD_IF_SERIAL_LNA_AUTON	0x9
+#define E4K_AGC_MOD_IF_SERIAL_LNA_SUPERV 0xa
 
-#define E4K_BAND_VHF2 0
-#define E4K_BAND_VHF3 1
-#define E4K_BAND_UHF  2
-#define E4K_BAND_L    3
+enum e4k_band {
+	E4K_BAND_VHF2	= 0,
+	E4K_BAND_VHF3	= 1,
+	E4K_BAND_UHF	= 2,
+	E4K_BAND_L	= 3,
+};
 
 #define E4K_IF_FILTER_MIX 0
 #define E4K_IF_FILTER_RC 1
-#define E4K_IF_FILTER_CHAN 2
 
 struct e4k_state {
-	uint8_t band;
-	uint32_t fosc;
-    uint8_t fil_cal_code;
+	uint8_t i2c_addr;
+	enum e4k_band band;
+    uint32_t fosc;
 	void *rtl_dev;
 };
 
 int e4k_init(struct e4k_state *e4k);
 int e4k_standby(struct e4k_state *e4k, int enable);
-int e4k_commonmode_set(struct e4k_state *e4k, uint8_t value);
-uint32_t e4k_tune_freq(struct e4k_state *e4k, uint32_t freq);
-int e4k_if_filter_bw_get(struct e4k_state *e4k, uint8_t filter);
+int e4k_if_gain_set(struct e4k_state *e4k, uint8_t stage, int8_t value);
+int e4k_commonmode_set(struct e4k_state *e4k, int8_t value);
+int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq);
 int e4k_if_filter_bw_set(struct e4k_state *e4k, uint8_t filter, uint32_t bandwidth);
-int e4k_if_filter_chan_enable(struct e4k_state *e4k, unsigned int on);
+int e4k_if_filter_bw_get(struct e4k_state *e4k, uint8_t filter);
+
 int e4k_manual_dc_offset(struct e4k_state *e4k, uint8_t iofs, uint8_t irange, uint8_t qofs, uint8_t qrange);
-int e4k_dc_offset_calibrate(struct e4k_state *e4k, uint8_t *offs_i, uint8_t *offs_q, uint8_t *offs_range);
+int e4k_dc_offset_calibrate(struct e4k_state *e4k);
+int e4k_dc_offset_gen_table(struct e4k_state *e4k);
 
 int e4k_enable_manual_gain(struct e4k_state *e4k, uint8_t manual);
-int e4k_set_agc_params(struct e4k_state *e4k, uint16_t lna_agc, uint8_t mixer_agc, uint8_t agc_rate);
 int e4k_set_lna_gain(struct e4k_state *e4k, uint32_t gain);
 int e4k_set_mixer_gain(struct e4k_state *e4k, uint8_t value);
 
