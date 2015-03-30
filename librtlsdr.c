@@ -31,54 +31,16 @@
 #include "rtl-sdr.h"
 #include "tuner_e4k.h"
 #include "tuner_r82xx.h"
-#define APPLY_PPM_CORR(val,ppm) (((val) * (1.0 + (ppm) / 1e6)))
+#define APPLY_PPM_CORR(val,ppm) (((val) * (1.0 + (ppm) * 1e-6)))
 #define TWO_POW(n)		((float)(1ULL<<(n)))
-#ifndef _WIN32
-#define min(a, b) (((a) < (b)) ? (a) : (b))
-#endif
 
-int usb_urb_transfer_bulk(int fd, unsigned char ep, char *bytes, unsigned int size, unsigned int *n_read);
+#include <libusb.h>
 
 /** In: device-to-host */
 #define ENDPOINT_IN 0x80
 
 /** Out: host-to-device */
 #define ENDPOINT_OUT 0x00
-
-struct usbfs_ctrltransfer {
-	/* keep in sync with usbdevice_fs.h:usbdevfs_ctrltransfer */
-	uint8_t  bRequestType;
-	uint8_t  bRequest;
-	uint16_t wValue;
-	uint16_t wIndex;
-	uint16_t wLength;
-
-	uint32_t timeout;	/* in milliseconds */
-
-	/* pointer to data */
-	void *data;
-};
-
-struct usbfs_getdriver {
-	unsigned int interface;
-	char driver[256];
-};
-
-struct usbfs_ioctl {
-    int ifno;   /* interface 0..N ; negative numbers reserved */
-    int ioctl_code; /* MUST encode size + direction of data so the macros in <asm/ioctl.h> give correct values */
-    void *data; /* param buffer (in, or out) */
-};
-
-#define IOCTL_USBFS_CONTROL	_IOWR('U', 0, struct usbfs_ctrltransfer)
-#define IOCTL_USBFS_SETCONFIG	_IOR('U', 5, unsigned int)
-#define IOCTL_USBFS_GETDRIVER	_IOW('U', 8, struct usbfs_getdriver)
-#define IOCTL_USBFS_CLAIMINTF	_IOR('U', 15, unsigned int)
-#define IOCTL_USBFS_RELEASEINTF	_IOR('U', 16, unsigned int)
-#define IOCTL_USBFS_RESET		_IO('U', 20)
-#define IOCTL_USBFS_CLEAR_HALT	_IOR('U', 21, unsigned int)
-#define IOCTL_USBFS_IOCTL       _IOWR('U', 18, struct usbfs_ioctl)
-#define IOCTL_USBFS_DISCONNECT  _IO('U', 22)
 
 typedef struct _usb_device_t {
     unsigned char busnum, devaddr, speed;
@@ -106,6 +68,12 @@ struct discovered_devs {
  */
 #ifndef LIBUSB_CALL
 #define LIBUSB_CALL
+#endif
+
+/* libusb < 1.0.9 doesn't have libusb_handle_events_timeout_completed */
+#ifndef HAVE_LIBUSB_HANDLE_EVENTS_TIMEOUT_COMPLETED
+#define libusb_handle_events_timeout_completed(ctx, tv, c) \
+	libusb_handle_events_timeout(ctx, tv)
 #endif
 
 typedef struct rtlsdr_tuner_iface {
@@ -140,7 +108,8 @@ static int fir_default[FIR_LEN] = {
 };
 
 struct rtlsdr_dev {
-    int devh;
+	libusb_context *ctx;
+	struct libusb_device_handle *devh;
 	/* rtl demod context */
 	uint32_t rate; /* Hz */
 	uint32_t rtl_xtal; /* Hz */
@@ -224,8 +193,8 @@ int e4000_set_freq(void *dev, uint32_t freq) {
 int e4000_set_bw(void *dev, uint32_t bw) {
 	int r = 0;
 	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
+	r |= e4k_if_filter_bw_set(&devt->e4k_s, E4K_IF_FILTER_MIX, bw);
 	r |= e4k_if_filter_bw_set(&devt->e4k_s, E4K_IF_FILTER_RC, bw);
-	r |= e4k_if_filter_bw_set(&devt->e4k_s, E4K_IF_FILTER_CHAN, bw);
 	return r;
 }
 
@@ -236,7 +205,7 @@ int e4000_set_mixer_gain(void *dev, uint32_t gain) {
 
 int e4000_set_lna_gain(void *dev, uint32_t gain) {
 	rtlsdr_dev_t* devt = (rtlsdr_dev_t*)dev;
-	return e4k_set_lna_gain(&devt->e4k_s, min(60, gain));
+	return e4k_set_lna_gain(&devt->e4k_s, gain);
 }
 
 int e4000_set_gain_mode(void *dev, uint8_t manual) {
@@ -430,17 +399,14 @@ unsigned int rtl_strlcpy(char *dst, const char *src, unsigned int siz)
     return(s - src - 1);    /* count does not include NUL */
 }
 
-static int op_claim_interface(int fd, int iface)
-{
-	return ioctl(fd, IOCTL_USBFS_CLAIMINTF, &iface);
-}
+struct usbfs_getdriver {
+    unsigned int interface;
+    char driver[256];
+};
 
-static int op_release_interface(int fd, int iface)
-{
-	return ioctl(fd, IOCTL_USBFS_RELEASEINTF, &iface);
-}
+#define IOCTL_USBFS_GETDRIVER   _IOW('U', 8, struct usbfs_getdriver)
 
-static int op_kernel_driver_active(int fd, int interface, char *name, unsigned int namelen)
+int op_kernel_driver_active(int fd, int interface, char *name, unsigned int namelen)
 {
 	struct usbfs_getdriver getdrv;
 	int r;
@@ -461,45 +427,12 @@ static int op_kernel_driver_active(int fd, int interface, char *name, unsigned i
 	return 1;
 }
 
-static int op_detach_kernel_driver(int fd, int interface)
-{
-    struct usbfs_ioctl command;
-    command.ifno = interface;
-    command.ioctl_code = IOCTL_USBFS_DISCONNECT;
-    command.data = NULL;
-    return ioctl(fd, IOCTL_USBFS_IOCTL, &command);
-}
-
-static int op_control_transfer(int fd, uint8_t requesttype, uint8_t request, uint16_t value, uint16_t index,
-                               unsigned char *data, unsigned int data_len, uint32_t timeout)
-{
-    struct usbfs_ctrltransfer ctrl;
-    int r;
-
-    ctrl.bRequestType = requesttype;
-    ctrl.bRequest = request;
-    ctrl.wValue = value;
-    ctrl.wIndex = index;
-    ctrl.data = data;
-    ctrl.wLength = (uint16_t)data_len;
-
-    ctrl.timeout = timeout;
-
-    r = ioctl(fd, IOCTL_USBFS_CONTROL, &ctrl);
-	if (r < 0) {
-        return -errno;
-	} else {
-        return ctrl.wLength;
-    }
-	return 0;
-}
-
 int rtlsdr_read_array(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_t *array, uint8_t len)
 {
 	int r;
 	uint16_t index = (block << 8);
 
-	r = op_control_transfer(dev->devh, CTRL_IN, 0, addr, index, array, len, CTRL_TIMEOUT);
+	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, array, len, CTRL_TIMEOUT);
 #if 0
 	if (r < 0)
 		rtlsdr_printf("%s failed with %d\n", __FUNCTION__, r);
@@ -512,7 +445,7 @@ int rtlsdr_write_array(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_t 
 	int r;
 	uint16_t index = (block << 8) | 0x10;
 
-	r = op_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, array, len, CTRL_TIMEOUT);
+	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, array, len, CTRL_TIMEOUT);
 #if 0
 	if (r < 0)
 		rtlsdr_printf("%s failed with %d\n", __FUNCTION__, r);
@@ -552,7 +485,7 @@ static uint16_t rtlsdr_read_reg(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr,
 	uint16_t index = (block << 8);
 	uint16_t reg;
 
-	r = op_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
+	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
 
 	if (r < 0)
 		rtlsdr_printf("%s failed with %d\n", __FUNCTION__, r);
@@ -576,7 +509,7 @@ static int rtlsdr_write_reg(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uin
 
 	data[1] = val & 0xff;
 
-	r = op_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT);
+	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT);
 
 	if (r < 0)
 		rtlsdr_printf("%s failed with %d\n", __FUNCTION__, r);
@@ -593,7 +526,7 @@ static uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint8_t page, uint16_t 
 	uint16_t reg;
 	addr = (addr << 8) | 0x20;
 
-	r = op_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
+	r = libusb_control_transfer(dev->devh, CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT);
 
 	if (r < 0)
 		rtlsdr_printf("%s failed with %d\n", __FUNCTION__, r);
@@ -616,7 +549,7 @@ static int rtlsdr_demod_write_reg(rtlsdr_dev_t *dev, uint8_t page, uint16_t addr
 
 	data[1] = val & 0xff;
 
-	r = op_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT);
+	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT);
 
 	if (r < 0)
 		rtlsdr_printf("%s failed with %d\n", __FUNCTION__, r);
@@ -994,71 +927,6 @@ enum rtlsdr_tuner rtlsdr_get_tuner_type(rtlsdr_dev_t *dev)
 	return dev->tuner_type;
 }
 
-int rtlsdr_get_tuner_gains(rtlsdr_dev_t *dev, unsigned int *lna_gains, unsigned int *mixer_gains, unsigned int *num_lna_gains, unsigned int *num_mixer_gains)
-{
-	/* all gain values are expressed in tenths of a dB, but stored in 2*dB */
-	const unsigned int e4k_lna_gains[13]     = { 0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70 };
-    const unsigned int e4k_mixer_gains[2]    = { 0, 15 };
-    const unsigned int r82xx_lna_gains[16]   = { 0, 2, 5, 13, 20, 23, 29, 33, 39, 45, 50, 53, 57, 58, 65, 67 };
-    const unsigned int r82xx_mixer_gains[13] = { 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24 };
-	const unsigned int unknown_gains[] = { 0 /* no gain values */ };
-
-	const unsigned int *ptr_lna = NULL;
-	const unsigned int *ptr_mix = NULL;
-	unsigned int i, len_lna = 0, len_mix = 0;
-
-	if (!dev || !num_lna_gains || !num_mixer_gains)
-		return -1;
-
-	switch (dev->tuner_type) {
-	case RTLSDR_TUNER_E4000:
-		ptr_lna = e4k_lna_gains; len_lna = 13;
-		ptr_mix = e4k_mixer_gains; len_mix = 2;
-		break;
-	case RTLSDR_TUNER_R820T:
-		ptr_lna = r82xx_lna_gains; len_lna = 16;
-		ptr_mix = r82xx_mixer_gains; len_mix = 13;
-		break;
-	default:
-		ptr_lna = unknown_gains; len_lna = 0;
-		ptr_mix = unknown_gains; len_mix = 0;
-		break;
-	}
-
-    /* Always provide count, assuming we got this far. */
-    *num_lna_gains = len_lna;
-    *num_mixer_gains = len_mix;
-
-    if (lna_gains && mixer_gains) {
-        for (i = 0; i < len_lna; i++) {
-            lna_gains[i] = 5*ptr_lna[i];
-        }
-        for (i = 0; i < len_mix; i++) {
-            mixer_gains[i] = 5*ptr_mix[i];
-        }
-    }
-    return 0;
-}
-
-#if 0
-// Old set_gain routine for R820T
-int r82xx_set_gain(struct r82xx_priv *priv, int gain)
-{
-	int i, rc, total_gain = 0;
-	uint8_t lna_index = 0, mix_index = 0;
-
-	for (i = 0; i < 15; i++) {
-		total_gain = r82xx_lna_gains[++lna_index] + 2*mix_index;
-		if (total_gain >= gain)
-			break;
-        total_gain += 2; mix_index++;
-		if (total_gain >= gain)
-			break;
-	}
-	return 0;
-}
-#endif
-
 int rtlsdr_set_tuner_gain(rtlsdr_dev_t *dev, unsigned int gain)
 {
 	int r = 0;
@@ -1212,8 +1080,8 @@ int rtlsdr_set_offset_tuning(rtlsdr_dev_t *dev, int on)
     r |= rtlsdr_set_if_freq(dev, dev->offs_freq);
 
     rtlsdr_set_i2c_repeater(dev, 1);
+	e4k_if_filter_bw_set(&dev->e4k_s, E4K_IF_FILTER_MIX, bw);
     e4k_if_filter_bw_set(&dev->e4k_s, E4K_IF_FILTER_RC, bw);
-	e4k_if_filter_bw_set(&dev->e4k_s, E4K_IF_FILTER_CHAN, bw);
     rtlsdr_set_i2c_repeater(dev, 0);
 
     if (dev->freq > dev->offs_freq)
@@ -1253,230 +1121,123 @@ static rtlsdr_dongle_t *find_known_device(uint16_t vid, uint16_t pid)
 	return device;
 }
 
-#include <dirent.h>
-#define SYSFS_DEVICE_PATH "/sys/bus/usb/devices"
-#define DISCOVERED_DEVICES_SIZE_STEP 8
-
-/* append a device to the discovered devices collection. may realloc itself,
- * returning new discdevs. returns NULL on realloc failure. */
-struct discovered_devs *discovered_devs_append(struct discovered_devs *discdevs, usb_device_t *dev)
-{
-    size_t capacity;
-
-    /* exceeded capacity, need to grow */
-    if (discdevs->len >= discdevs->capacity) {
-        capacity = discdevs->capacity + DISCOVERED_DEVICES_SIZE_STEP;
-        discdevs = realloc(discdevs, sizeof(*discdevs) + (sizeof(usb_device_t) * capacity));
-        discdevs->capacity = capacity;
-    }
-
-    memcpy(&(discdevs->devices[discdevs->len++]), dev, sizeof(usb_device_t));
-    return discdevs;
-}
-
-static int __read_sysfs_attr(const char *devname, const char *attr, char *buf, unsigned int buflen)
-{
-    char filename[PATH_MAX];
-    int fd = -1;
-    int r = 0;
-
-    snprintf(filename, PATH_MAX, "%s/%s/%s", SYSFS_DEVICE_PATH, devname, attr);
-    fd = open(filename, O_RDONLY);
-    if (fd < 0) {
-        rtlsdr_printf("open %s failed!\n", filename);
-        return -1;
-    }
-
-    read(fd, buf, buflen);
-    close(fd);
-    return r;
-}
-
-void sysfs_free_usb_device_list(struct discovered_devs *discdevs)
-{
-    free(discdevs);
-}
-
-struct discovered_devs *sysfs_get_usb_device_list(void)
-{
-    struct discovered_devs *discdevs = NULL;
-    DIR *devices = opendir(SYSFS_DEVICE_PATH);
-    struct dirent *entry;
-
-    if (!devices) {
-        rtlsdr_printf("opendir devices failed!\n");
-        return NULL;
-    }
-
-    discdevs = malloc(sizeof(*discdevs) + (sizeof(usb_device_t) * DISCOVERED_DEVICES_SIZE_STEP));
-    discdevs->len = 0;
-    discdevs->capacity = DISCOVERED_DEVICES_SIZE_STEP;
-
-    while ((entry = readdir(devices))) {
-        rtlsdr_dongle_t *d = NULL;
-        usb_device_t dev;
-        char tmpbuf[255];
-        int r = 0;
-
-        if ((!isdigit(entry->d_name[0]) && strncmp(entry->d_name, "usb", 3)) || strchr(entry->d_name, ':'))
-            continue;
-
-        __read_sysfs_attr(entry->d_name, "idVendor", tmpbuf, 255);
-        dev.idVendor = strtoul(tmpbuf, NULL, 16);
-        __read_sysfs_attr(entry->d_name, "idProduct", tmpbuf, 255);
-        dev.idProduct = strtoul(tmpbuf, NULL, 16);
-
-		if ((d = find_known_device(dev.idVendor, dev.idProduct)) != NULL) {
-            /* Note speed can contain 1.5, in this case __read_sysfs_attr will stop parsing at the '.' and return 1 */
-            __read_sysfs_attr(entry->d_name, "speed", tmpbuf, 255);
-            dev.speed = strtoul(tmpbuf, NULL, 10);
-            __read_sysfs_attr(entry->d_name, "busnum", tmpbuf, 255);
-            dev.busnum = strtoul(tmpbuf, NULL, 10);
-            __read_sysfs_attr(entry->d_name, "devnum", tmpbuf, 255);
-            dev.devaddr = strtoul(tmpbuf, NULL, 10);
-            dev.name = d->name;
-            r = __read_sysfs_attr(entry->d_name, "serial", dev.serial, 255);
-            if (r <= 0) {
-                dev.serial[0] = '\0';
-            } else {
-                dev.serial[r-1] = '\0';
-            }
-
-            discdevs = discovered_devs_append(discdevs, &dev);
-        }
-    }
-
-    closedir(devices);
-    return discdevs;
-}
-
 uint32_t rtlsdr_get_device_count(void)
 {
-    DIR *devices = opendir(SYSFS_DEVICE_PATH);
-    struct dirent *entry;
-    unsigned short idVendor, idProduct;
+	int i;
+	libusb_context *ctx;
+	libusb_device **list;
 	uint32_t device_count = 0;
+	struct libusb_device_descriptor dd;
+	ssize_t cnt;
 
-    if (!devices) {
-        rtlsdr_printf("opendir devices failed!\n");
-        return 0;
-    }
-
-    while ((entry = readdir(devices))) {
-        char tmpbuf[255];
-
-        if ((!isdigit(entry->d_name[0]) && strncmp(entry->d_name, "usb", 3)) || strchr(entry->d_name, ':'))
-            continue;
-
-        __read_sysfs_attr(entry->d_name, "idVendor", tmpbuf, 255);
-        idVendor = strtoul(tmpbuf, NULL, 16);
-        __read_sysfs_attr(entry->d_name, "idProduct", tmpbuf, 255);
-        idProduct = strtoul(tmpbuf, NULL, 16);
-
-		if (find_known_device(idVendor, idProduct))
+	libusb_init(&ctx);
+	cnt = libusb_get_device_list(ctx, &list);
+	for (i = 0; i < cnt; i++) {
+		libusb_get_device_descriptor(list[i], &dd);
+		if (find_known_device(dd.idVendor, dd.idProduct))
 			device_count++;
-    }
+	}
 
-    closedir(devices);
+	libusb_free_device_list(list, 1);
+	libusb_exit(ctx);
 	return device_count;
 }
 
-int hackrf_device_find(unsigned int index)
+int rtlsdr_get_device_usb_strings(uint32_t index, const char **product, char *serial)
 {
-    DIR *devices = opendir(SYSFS_DEVICE_PATH);
-    struct dirent *entry;
-    unsigned short idVendor, idProduct;
-	uint32_t device_count = 0;
+	int r = -2;
+	libusb_context *ctx;
+	libusb_device **list;
+	struct libusb_device_descriptor dd;
+	rtlsdr_dongle_t *device = NULL;
+	rtlsdr_dev_t devt;
+	uint32_t i, device_count = 0;
+	ssize_t cnt;
 
-    if (!devices) {
-        rtlsdr_printf("opendir devices failed!\n");
-        return 0;
-    }
+	libusb_init(&ctx);
 
-    while ((entry = readdir(devices))) {
-        char tmpbuf[255];
+	cnt = libusb_get_device_list(ctx, &list);
 
-        if ((!isdigit(entry->d_name[0]) && strncmp(entry->d_name, "usb", 3)) || strchr(entry->d_name, ':'))
-            continue;
-
-        __read_sysfs_attr(entry->d_name, "idVendor", tmpbuf, 255);
-        idVendor = strtoul(tmpbuf, NULL, 16);
-        __read_sysfs_attr(entry->d_name, "idProduct", tmpbuf, 255);
-        idProduct = strtoul(tmpbuf, NULL, 16);
-
-        if ((idVendor == 0x1d50) && ((idProduct == 0x604b) || (idProduct == 0x6089))) {
+	for (i = 0; i < cnt; i++) {
+		libusb_get_device_descriptor(list[i], &dd);
+		device = find_known_device(dd.idVendor, dd.idProduct);
+		if (device) {
 			device_count++;
-            if (!index || (index == device_count)) {
-                unsigned int devinfo = 0;
-                uint8_t busnum, devaddr;
-                __read_sysfs_attr(entry->d_name, "busnum", tmpbuf, 255);
-                busnum = strtoul(tmpbuf, NULL, 10);
-                __read_sysfs_attr(entry->d_name, "devnum", tmpbuf, 255);
-                devaddr = strtoul(tmpbuf, NULL, 10);
-                devinfo = (((uint32_t)busnum << 8) | (uint32_t)devaddr);
-                closedir(devices);
-                return devinfo;
-            }
-        }
-    }
+            *product = device->name;
+			if (index == device_count - 1) {
+				r = libusb_open(list[i], &devt.devh);
+				if (!r) {
+	                libusb_device *device = libusb_get_device(devt.devh);
+	                r = libusb_get_device_descriptor(device, &dd);
+	                if (r < 0)
+		                return -1;
+                    serial[0] = '\0';
+	                r = libusb_get_string_descriptor_ascii(devt.devh, dd.iSerialNumber, (unsigned char *)serial, 256);
+					libusb_close(devt.devh);
+				}
+				break;
+			}
+		}
+	}
 
-    closedir(devices);
-    return -1;
+	libusb_free_device_list(list, 1);
+
+	libusb_exit(ctx);
+
+	return r;
 }
 
 int rtlsdr_search_for_device(char *s)
 {
-    unsigned int i, device_count, device;
-    char *s2;
-    struct discovered_devs *discdevs = NULL;
+    int i, device_count, device;
+    char *s2, *product = NULL;
+    char serial[256];
 
     device_count = rtlsdr_get_device_count();
     if (!device_count) {
         rtlsdr_printf("No supported devices found.\n");
         return -1;
     }
+
     rtlsdr_printf("Found %d device(s):\n", device_count);
-
-    discdevs = sysfs_get_usb_device_list();
-    for (i = 0; i < discdevs->len; i++) {
-        usb_device_t *dev = &(discdevs->devices[i]);
-        rtlsdr_printf("  %d:  %s, SN: %s\n", i, dev->name, dev->serial);
+    for (i = 0; i < device_count; i++) {
+        rtlsdr_get_device_usb_strings(i, (const char**)&product, serial);
+        rtlsdr_printf("  %d:  %s, SN: %s\n", i, product, serial);
     }
-
     /* does string look like raw id number */
     device = (unsigned int)strtoul(s, &s2, 0);
-    if (s2[0] == '\0' && device < device_count) {
+    if (s2[0] == '\0' && device >= 0 && device < device_count) {
         goto device_found;
     }
 
     /* does string contain a serial */
-    for (i = 0; i < discdevs->len; i++) {
-        if (strstr(s, discdevs->devices[i].serial) != 0) {
+    for (i = 0; i < device_count; i++) {
+        rtlsdr_get_device_usb_strings(i, (const char**)&product, serial);
+        if (strstr(s, serial) != 0) {
             continue;
         }
         device = i;
         goto device_found;
     }
-
     rtlsdr_printf("\nNo matching devices found.\n");
-    sysfs_free_usb_device_list(discdevs);
     return -1;
 
 device_found:
-    rtlsdr_printf("\nUsing device %d: %s\n", device, discdevs->devices[device].name);
-    sysfs_free_usb_device_list(discdevs);
+    rtlsdr_printf("\nUsing device %d\n", device);
     return device;
 }
 
 int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 {
-    char drivername[256];
-    char usbfs_path[31];
-    int r = 0, device = -1;
-    int i;
-    struct discovered_devs *discdevs = NULL;
+	int r;
+	int i;
+	libusb_device **list;
 	rtlsdr_dev_t *dev = NULL;
+	libusb_device *device = NULL;
+	uint32_t device_count = 0;
+	struct libusb_device_descriptor dd;
 	uint8_t reg;
+	ssize_t cnt;
 
 	dev = malloc(sizeof(rtlsdr_dev_t));
 	if (NULL == dev)
@@ -1484,49 +1245,66 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 
 	memset(dev, 0, sizeof(rtlsdr_dev_t));
 
+	libusb_init(&dev->ctx);
+
 	dev->dev_lost = 1;
 
-    discdevs = sysfs_get_usb_device_list();
+	cnt = libusb_get_device_list(dev->ctx, &list);
 
-	for (i = 0; i < discdevs->len; i++) {
-		if (index == i) {
-            device = i;
+	for (i = 0; i < cnt; i++) {
+		device = list[i];
+
+		libusb_get_device_descriptor(list[i], &dd);
+
+		if (find_known_device(dd.idVendor, dd.idProduct)) {
+			device_count++;
+		}
+
+		if (index == device_count - 1)
 			break;
-        }
+
+		device = NULL;
 	}
 
-	if (device < 0) {
+	if (!device) {
 		r = -1;
 		goto err;
 	}
 
-    snprintf(usbfs_path, 30, "/dev/bus/usb/%03u/%03u", discdevs->devices[device].busnum, discdevs->devices[device].devaddr);
-    if (access(usbfs_path, R_OK | W_OK) < 0) {
-        sysfs_free_usb_device_list(discdevs);
-	    rtlsdr_printf("Please fix the device permissions, e.g. by installing the udev rules file rtl-sdr.rules\n");
-		goto err;
-    }
-
-	dev->devh = open(usbfs_path, O_RDWR);
-	if (dev->devh < 0) {
-        sysfs_free_usb_device_list(discdevs);
-		rtlsdr_printf("usb_open error %d\n", errno);
+	r = libusb_open(device, &dev->devh);
+	if (r < 0) {
+		libusb_free_device_list(list, 1);
+		rtlsdr_printf("usb_open error %d\n", r);
+		if(r == LIBUSB_ERROR_ACCESS)
+			rtlsdr_printf("Please fix the device permissions, e.g. by installing the udev rules file rtl-sdr.rules\n");
 		goto err;
 	}
 
-    sysfs_free_usb_device_list(discdevs);
+	libusb_free_device_list(list, 1);
 
+#if 0
 	if (op_kernel_driver_active(dev->devh, 0, drivername, 256) == 1) {
         if (!strstr(drivername, "dvb")) {
-            op_detach_kernel_driver(dev->devh, 0);
+		    if (!libusb_detach_kernel_driver(dev->devh, 0)) {
+			    rtlsdr_printf("Detached kernel driver\n");
+		    } else {
+			    rtlsdr_printf("Detaching kernel driver failed!\n");
+		    }
         } else {
 		    rtlsdr_printf("Kernel driver is active, or device is claimed by second instance of librtlsdr.\n"
 				          "In the first case, please either detach, blacklist or delte the kernel module (dvb_usb_rtl28xxu),\n"
                           "or enable automatic detaching at compile time.\n\n");
         }
 	}
+#endif
 
-	r = op_claim_interface(dev->devh, 0);
+	if (libusb_kernel_driver_active(dev->devh, 0) == 1) {
+		rtlsdr_printf("Kernel driver is active, or device is claimed by second instance of librtlsdr.\n"
+				      "In the first case, please either detach, blacklist or delte the kernel module (dvb_usb_rtl28xxu),\n"
+                      "or enable automatic detaching at compile time.\n\n");
+	}
+
+	r = libusb_claim_interface(dev->devh, 0);
 	if (r < 0) {
 		rtlsdr_printf("usb_claim_interface error %d\n", r);
 		goto err;
@@ -1537,9 +1315,7 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 	/* perform a dummy write, if it fails, reset the device */
 	if (rtlsdr_write_reg(dev, USBB, USB_SYSCTL, 0x09, 1) < 0) {
 		rtlsdr_printf("Resetting device...\n");
-		op_release_interface(dev->devh, 0);
-	    ioctl(dev->devh, IOCTL_USBFS_RESET, NULL);
-	    op_claim_interface(dev->devh, 0);
+		libusb_reset_device(dev->devh);
 	}
 
 	rtlsdr_init_baseband(dev);
@@ -1650,9 +1426,11 @@ int rtlsdr_close(rtlsdr_dev_t *dev)
 		rtlsdr_deinit_baseband(dev);
 	}
 
-	op_release_interface(dev->devh, 0);
+	libusb_release_interface(dev->devh, 0);
 
-	close(dev->devh);
+	libusb_close(dev->devh);
+
+	libusb_exit(dev->ctx);
 
 	free(dev);
 
@@ -1702,79 +1480,11 @@ int rtlsdr_i2c_read_fn(void *dev, uint8_t i2c_addr, uint8_t *buf, int len)
     return -1;
 }
 
-#define HACKRF_VRQ_SET_TRANSCEIVER_MODE 1
-#define HACKRF_VRQ_MAX2837_WRITE 2
-#define HACKRF_VRQ_MAX2837_READ 3
-#define HACKRF_VRQ_SAMPLE_RATE_SET 6
-#define HACKRF_VRQ_SET_FREQ 16
-#define HACKRF_VRQ_SET_LNA_GAIN 19
-
-int hackrf_max2837_read(int hackrf_fd, uint8_t register_number, uint16_t* value)
-{
-    if(register_number >= 32) {
-        return -1002;
-    }
-    
-    return op_control_transfer(hackrf_fd, CTRL_IN, HACKRF_VRQ_MAX2837_READ, 0, register_number, (unsigned char*)value, 2, 300);
-}
-
-int hackrf_max2837_write(int hackrf_fd, uint8_t register_number, uint16_t value)
-{   
-    if(register_number >= 32) {
-        return -1002;
-    }
-
-    value &= 0x3ff;
-    return op_control_transfer(hackrf_fd, CTRL_OUT, HACKRF_VRQ_MAX2837_WRITE, value, register_number, NULL, 0, 300);
-}
-
-int hackrf_set_transciever_mode(int hackrf_fd, hackrf_transceiver_mode mode)
-{
-	return op_control_transfer(hackrf_fd, CTRL_OUT, HACKRF_VRQ_SET_TRANSCEIVER_MODE, mode, 0, NULL, 0, 300);
-}
-
-int hackrf_set_sample_rate_manual(int hackrf_fd, const uint32_t freq_hz)
-{
-	uint32_t set_fracrate_params[2];
-    int result;
-
-	set_fracrate_params[0] = freq_hz;
-	set_fracrate_params[1] = 1;
-
-	result = op_control_transfer(hackrf_fd, CTRL_OUT, HACKRF_VRQ_SAMPLE_RATE_SET, 0, 0, (unsigned char*)&set_fracrate_params, 2*sizeof(uint32_t), 300);
-    if (result < 2*sizeof(uint32_t)) {
-        if (result < 0) {
-            return result;
-        } else {
-            return -1001;
-        }
-    }
-    return result;
-}
-
-int hackrf_set_lna_gain(int hackrf_fd, const uint32_t lna_gain)
-{
-    int result;
-    uint8_t retval = 0;
-
-    if ((lna_gain > 40) || (lna_gain & 0x07)) {
-        return -1002;
-    }
-	result = op_control_transfer(hackrf_fd, CTRL_IN, HACKRF_VRQ_SET_LNA_GAIN, 0, lna_gain, &retval, 1, 300);
-    if (result < 1) {
-        return result;
-    }
-    if (!retval) {
-        return -1002;
-    }
-    return 0;
-}
-
 int rtlsdr_read_sync(rtlsdr_dev_t *dev, void *buf, unsigned int len, unsigned int *n_read)
 {
 	if (!dev)
 		return -1;
 
-	return usb_urb_transfer_bulk(dev->devh, 0x81, buf, len, n_read);
+	return libusb_bulk_transfer(dev->devh, 0x81, buf, len, (int*)n_read, 0);
 }
 
