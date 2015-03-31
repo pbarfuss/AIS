@@ -68,6 +68,7 @@ static float rcos_filter_coeffs[84] = {
     -0.0195706589, 0.0, 0.0, 0.0
 };
 #define COEFFS_L 81
+#define INVGAIN 0.7f
 
 /* ---------------------------------------------------------------------- */
 
@@ -88,7 +89,7 @@ float filter_run_buf(struct filter *f, float *in, float *out, unsigned int len)
 		if (in[id] > maxval)
 			maxval = in[id];
 
-		out[id++] = scalarproduct_float_sse(&f->buffer[filtidx - COEFFS_L], rcos_filter_coeffs, 84);
+		out[id++] = INVGAIN*scalarproduct_float_sse(&f->buffer[filtidx - COEFFS_L], rcos_filter_coeffs, 84);
 
 		/* the buffer is much smaller than the incoming chunks */
 		if (filtidx == BufferLen-1) {
