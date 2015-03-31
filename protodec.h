@@ -33,17 +33,17 @@
 //#define DBG(x) x
 // if you want to see all debug text
 #define DBG(x)
-#define DEMOD_BUFFER_LEN 450
+#define DEMOD_BUFFER_LEN 512
+#define SERBUFFER_LEN 128
 
 struct demod_state_t {
-	char chanid;
 	int state;
 	unsigned int offset;
 	int nskurr, npreamble, nstartsign, ndata, nstopsign;
 
 	int antallenner;
-	unsigned char *buffer;
-	unsigned char *rbuffer;
+	unsigned char buffer[DEMOD_BUFFER_LEN];
+	unsigned char rbuffer[DEMOD_BUFFER_LEN];
 	char *tbuffer;
 	unsigned int bufferpos;
 	char last;
@@ -55,12 +55,11 @@ struct demod_state_t {
 	unsigned char seqnr;
 	float best_range;
 
-	char *serbuffer;
     int serial_out_fd, nmea_out_fd;
-	char *nmea;
+    char nmea_buffer[SERBUFFER_LEN];
 };
 
-void protodec_initialize(struct demod_state_t *d, int serial_out_fd, char chanid);
+void protodec_initialize(struct demod_state_t *d, int serial_out_fd);
 void protodec_reset(struct demod_state_t *d);
 void protodec_getdata(unsigned int buffer_len, struct demod_state_t *d);
 void protodec_decode(char *in, unsigned int count, struct demod_state_t *d);

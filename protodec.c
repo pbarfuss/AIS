@@ -27,7 +27,6 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "protodec.h"
-#include "cache.h"
 static const char hex[]="0123456789ABCDEF";
 
 //#define DEBUG_NMEA
@@ -36,8 +35,6 @@ static const char hex[]="0123456789ABCDEF";
 #else
 #define NMEA_DBG(x)
 #endif
-
-#define SERBUFFER_LEN	100
 
 float mylat = -200.0;
 float mylng = -200.0;
@@ -51,28 +48,20 @@ static inline float lat2rad(float lat)
 	return (lat * (M_PI / 180.0f));
 }
 
-void protodec_initialize(struct demod_state_t *d, int serial_out_fd, char chanid)
+void protodec_initialize(struct demod_state_t *d, int serial_out_fd)
 {
 	memset(d, 0, sizeof(struct demod_state_t));
 
-	d->chanid = chanid;
     d->nmea_out_fd = serial_out_fd;
 
 	d->receivedframes = 0;
 	d->lostframes = 0;
 	d->lostframes2 = 0;
 	d->seqnr = 0;
-
-	d->buffer = malloc(DEMOD_BUFFER_LEN);
-	d->rbuffer = malloc(DEMOD_BUFFER_LEN);
-	d->nmea = malloc(SERBUFFER_LEN);
 }
 
 void protodec_deinit(struct demod_state_t *d)
 {
-	free(d->buffer);
-	free(d->rbuffer);
-	free(d->nmea);
 }
 
 void protodec_reset(struct demod_state_t *d)
@@ -190,14 +179,11 @@ void protodec_decode_sixbit_ascii(char sixbit, char *name, unsigned int pos)
 	name[pos] = ' ';
 }
 
-unsigned long protodec_henten(unsigned int from, unsigned int size, unsigned char *frame)
+unsigned int protodec_henten(unsigned int from, unsigned int size, unsigned char *frame)
 {
-    unsigned int i;
-	unsigned long tmp = 0;
-
+	unsigned int i, tmp = 0;
 	for (i = 0; i < size; i++)
 		tmp |= (frame[from + i]) << (size - 1 - i);
-
 	return tmp;
 }
 
@@ -263,15 +249,13 @@ const char *appid_ifm(unsigned int i)
  *	binary message decoding
  */
 
-void protodec_msg_40(unsigned char *buffer, unsigned int bufferlen, unsigned int msg_start, time_t received_t, uint64_t mmsi)
+void protodec_msg_40(unsigned char *buffer, unsigned int bufferlen, unsigned int msg_start, time_t received_t, uint32_t mmsi)
 {
 	int people_on_board = protodec_henten(msg_start, 13, buffer);
 	printf(" persons-on-board %d", people_on_board);
-	if (cache_positions)
-		cache_vessel_persons(received_t, mmsi, people_on_board);
 }
 
-void protodec_msg_11(unsigned char *buffer, unsigned int bufferlen, unsigned int msg_start, time_t received_t, uint64_t mmsi)
+void protodec_msg_11(unsigned char *buffer, unsigned int bufferlen, unsigned int msg_start, time_t received_t, uint32_t mmsi)
 {
 	int latitude = protodec_henten(msg_start, 24, buffer);
 	int longitude = protodec_henten(msg_start += 24, 25, buffer);
@@ -311,7 +295,7 @@ void protodec_msg_11(unsigned char *buffer, unsigned int bufferlen, unsigned int
 		(float)horiz_visib_nm * 0.1f, (float)water_level * 0.1f - 10.0, (float)wave_height_significant * 0.1f, (float)water_temp * 0.1f - 10.0);
 }
 
-void protodec_msg_bin(unsigned char *buffer, unsigned int bufferlen, unsigned int appid_fi, int msg_start, time_t received_t, uint64_t mmsi)
+void protodec_msg_bin(unsigned char *buffer, unsigned int bufferlen, unsigned int appid_fi, int msg_start, time_t received_t, uint32_t mmsi)
 {
 	switch (appid_fi) {
 	case 11: // weather
@@ -357,7 +341,7 @@ static inline void update_range(struct demod_state_t *d, float lat, float lon)
  *	decode position packets (types 1,2,3)
  */
 
-void protodec_pos(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
+void protodec_pos(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	int longitude, latitude;
 	unsigned short course, sog, heading;
@@ -383,20 +367,11 @@ void protodec_pos(struct demod_state_t *d, unsigned int bufferlen, time_t receiv
 		(float) course / 10.0, (float) sog / 10.0,
 		rateofturn, navstat, heading);
 
-	if (cache_positions)
-		cache_position(received_t, mmsi, navstat,
-			(float) latitude / 600000.0,
-			(float) longitude / 600000.0,
-			heading,
-			(float) course / 10.0,
-			rateofturn,
-			(float) sog / 10.0);
-
 	if (have_my_loc)
 		update_range(d, (float) latitude / 600000.0, (float) longitude / 600000.0);
 }
 
-void protodec_4(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
+void protodec_4(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	unsigned int day, hour, minute, second, year, month;
 	int longitude, latitude;
@@ -422,17 +397,11 @@ void protodec_4(struct demod_state_t *d, unsigned int bufferlen, time_t received
 	printf(" date %d-%d-%d time %02u:%02u:%02u lat %.6f lon %.6f",
 		   year, month, day, hour, minute, second, latit, longit);
 
-	if (cache_positions)
-		cache_position(received_t, mmsi, 0,
-			(float) latitude / 600000.0,
-			(float) longitude / 600000.0,
-			0, 0.0, 0, 0.0);
-
 	if (have_my_loc)
 		update_range(d, (float) latitude / 600000.0, (float) longitude / 600000.0);
 }
 
-void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
+void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
     unsigned int k, pos = 70, imo, shiptype;
 	char callsign[7];
@@ -490,17 +459,13 @@ void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received
 
 	printf(" name \"%s\" destination \"%s\" type %d length %d width %d draught %.1f",
 		   name, destination, shiptype, A + B, C + D, (float) draught * 0.1f);
-
-	if (cache_positions)
-		cache_vesseldata(received_t, mmsi, imo, callsign,
-			name, destination, shiptype, A, B, C, D, draught / 10.0);
 }
 
 /*
  *	6: addressed binary message
  */
 
-void protodec_6(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
+void protodec_6(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	int sequence = protodec_henten(38, 2, d->rbuffer);
 	unsigned long dst_mmsi = protodec_henten(40, 30, d->rbuffer);
@@ -523,7 +488,7 @@ void protodec_6(struct demod_state_t *d, unsigned int bufferlen, time_t received
  *	13: Safety related acknowledge
  */
 
-void protodec_7_13(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
+void protodec_7_13(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	uint64_t dst_mmsi;
     unsigned int i, pos = 40;
@@ -542,7 +507,7 @@ void protodec_7_13(struct demod_state_t *d, unsigned int bufferlen, time_t recei
  *	8: Binary broadcast
  */
 
-void protodec_8(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
+void protodec_8(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	int appid = protodec_henten(40, 16, d->rbuffer);
 	int appid_dac = protodec_henten(40, 10, d->rbuffer);
@@ -555,7 +520,7 @@ void protodec_8(struct demod_state_t *d, unsigned int bufferlen, time_t received
 	}
 }
 
-void protodec_18(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
+void protodec_18(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	int longitude, latitude;
 	unsigned short course, sog, heading;
@@ -580,15 +545,11 @@ void protodec_18(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 		   (float) latitude / 600000.0f, (float) longitude / 600000.0f,
            (float) course * 0.1f, (float) sog * 0.1f, rateofturn, navstat, heading);
 
-	if (cache_positions)
-		cache_position(received_t, mmsi, navstat, (float) latitude / 600000.0, (float) longitude / 600000.0,
-		               heading, (float) course / 10.0, rateofturn, (float) sog / 10.0);
-
 	if (have_my_loc)
 		update_range(d, (float) latitude / 600000.0, (float) longitude / 600000.0);
 }
 
-void protodec_19(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
+void protodec_19(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	int pos, k;
 	unsigned int A, B;
@@ -600,7 +561,6 @@ void protodec_19(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 	 * Class B does not have destination, use "CLASS B" instead
 	 * (same as ShipPlotter)
 	 */
-	char destination[21] = "CLASS B";
 
 	/* get name */
 	pos = 143;
@@ -624,12 +584,7 @@ void protodec_19(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 
 	// printf("Length: %d\nWidth: %d\n",A+B,C+D);
 	//printf("%09ld %d %d %f", mmsi, A + B, C + D);
-	printf(" name \"%s\" type %d length %d  width %d", name, shiptype, A+B, C+D);
-
-	if (cache_positions) {
-		cache_vesselname(received_t, mmsi, name, destination);
-		cache_vesseldatabb(received_t, mmsi, shiptype, A, B, C, D);
-	}
+	printf("CLASS B: name \"%s\" type %d length %d  width %d", name, shiptype, A+B, C+D);
 }
 
 void protodec_20(struct demod_state_t *d, unsigned int bufferlen)
@@ -648,7 +603,7 @@ void protodec_20(struct demod_state_t *d, unsigned int bufferlen)
 	}
 }
 
-void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint64_t mmsi)
+void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	int partnr;
 	int pos;
@@ -662,7 +617,6 @@ void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 	 * Class B does not have destination, use "CLASS B" instead
 	 * (same as ShipPlotter)
 	 */
-	const char destination[21] = "CLASS B";
 
 	/* resolve type 24 frame's part A or B */
 	partnr = protodec_henten(38, 2, d->rbuffer);
@@ -680,11 +634,7 @@ void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 
 		name[20] = 0;
 		remove_trailing_spaces(name, 20);
-
 		printf(" name \"%s\"", name);
-
-		if (cache_positions)
-			cache_vesselname(received_t, mmsi, name, destination);
 	}
 
 	if (partnr == 1) {
@@ -707,10 +657,7 @@ void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 		B = protodec_henten(132 + 9, 9, d->rbuffer);
 		C = protodec_henten(132 + 9 + 9, 6, d->rbuffer);
 		D = protodec_henten(132 + 9 + 9 + 6, 6, d->rbuffer);
-
 		printf(" callsign \"%s\" type %d length %d width %d", callsign, shiptype, A+B, C+D);
-		if (cache_positions)
-			cache_vesseldatab(received_t, mmsi, callsign, shiptype, A, B, C, D);
 	}
 }
 
@@ -742,77 +689,77 @@ void protodec_generate_nmea(struct demod_state_t *d, unsigned int bufferlen, uns
 				letter = letter + 48;
 			else
 				letter = letter + 56;
-			d->nmea[k] = letter;
+			d->nmea_buffer[k] = letter;
 			pos += 6;
 			k++;
 		}
 		NMEA_DBG(printf("NMEA: Drop from loop with k:%d pos:%d senlen:%d bufferlen\n",
 			            k, pos, senlen, bufferlen));
 		//set nmea trailer with 00 checksum (calculate later)
-		d->nmea[k] = 44;
-		d->nmea[k + 1] = 48;
-		d->nmea[k + 2] = 42;
-		d->nmea[k + 3] = 48;
-		d->nmea[k + 4] = 48;
-		d->nmea[k + 5] = 0;
+		d->nmea_buffer[k] = 44;
+		d->nmea_buffer[k + 1] = 48;
+		d->nmea_buffer[k + 2] = 42;
+		d->nmea_buffer[k + 3] = 48;
+		d->nmea_buffer[k + 4] = 48;
+		d->nmea_buffer[k + 5] = 0;
 		sentencenum++;
 
 		// printout one frame starts here
 		//AIVDM,x,x,,, - header comes here first
 
-		d->nmea[0] = 65;
-		d->nmea[1] = 73;
-		d->nmea[2] = 86;
-		d->nmea[3] = 68;
-		d->nmea[4] = 77;
-		d->nmea[5] = 44;
-		d->nmea[6] = 48 + sentences;
-		d->nmea[7] = 44;
-		d->nmea[8] = 48 + sentencenum;
-		d->nmea[9] = 44;
+		d->nmea_buffer[0] = 65;
+		d->nmea_buffer[1] = 73;
+		d->nmea_buffer[2] = 86;
+		d->nmea_buffer[3] = 68;
+		d->nmea_buffer[4] = 77;
+		d->nmea_buffer[5] = 44;
+		d->nmea_buffer[6] = 48 + sentences;
+		d->nmea_buffer[7] = 44;
+		d->nmea_buffer[8] = 48 + sentencenum;
+		d->nmea_buffer[9] = 44;
 
 		//if multipart message it needs sequential id number
 		if (sentences > 1) {
 			NMEA_DBG(printf("NMEA: It is multipart (%d/%d), add sequence number (%d) to header\n",
 				            sentences, sentencenum, d->seqnr));
-			d->nmea[10] = d->seqnr + 48;
-			d->nmea[11] = 44;
-			d->nmea[12] = 44;
+			d->nmea_buffer[10] = d->seqnr + 48;
+			d->nmea_buffer[11] = 44;
+			d->nmea_buffer[12] = 44;
 			//and if the last of multipart we need to show fillbits at trailer
 			if (sentencenum == sentences) {
 				NMEA_DBG(printf("NMEA: It is last of multipart (%d/%d), add fillbits (%d) to trailer\n",
 					            sentences, sentencenum, fillbits));
-				d->nmea[k + 1] = 48 + fillbits;
+				d->nmea_buffer[k + 1] = 48 + fillbits;
 			}
 		} else {	//else put channel A & no seqnr to keep equal lenght (foo!)
-			d->nmea[10] = 44;
-			d->nmea[11] = 65;
-			d->nmea[12] = 44;
+			d->nmea_buffer[10] = 44;
+			d->nmea_buffer[11] = 65;
+			d->nmea_buffer[12] = 44;
 		}
 
 		//strcpy(nmea,"!AIVDM,1,1,,,");
 		//calculate xor checksum in hex for nmea[0] until nmea[m]='*'(42)
-		nmeachk = d->nmea[0];
-		while (d->nmea[m] != 42) {	//!="*"
-			nmeachk = nmeachk ^ d->nmea[m];
+		nmeachk = d->nmea_buffer[0];
+		while (d->nmea_buffer[m] != 42) {	//!="*"
+			nmeachk = nmeachk ^ d->nmea_buffer[m];
 			m++;
 		}
 
 		// convert calculated checksum to 2 digit hex there are 00 as base
 		// so if only 1 digit put it to later position to get 0-header 01,02...
 		if (nmeachk <= 0x0F) {
-			d->nmea[k + 4] = hex[nmeachk & 0x0f];
+			d->nmea_buffer[k + 4] = hex[nmeachk & 0x0f];
 		} else {
-			d->nmea[k + 3] = hex[((nmeachk >> 4) & 0x0f)];
-			d->nmea[k + 4] = hex[((nmeachk >> 0) & 0x0f)];
+			d->nmea_buffer[k + 3] = hex[((nmeachk >> 4) & 0x0f)];
+			d->nmea_buffer[k + 4] = hex[((nmeachk >> 0) & 0x0f)];
 		}
 		//In final. Add header "!" and trailer <lf>
 		// here it could be sent to /dev/ttySx
-        d->nmea[k + 5] = '\n';
-        d->nmea[k + 6] = '\0';
-		serbuffer_l = strlen(d->nmea);
+        d->nmea_buffer[k + 5] = '\n';
+        d->nmea_buffer[k + 6] = '\0';
+		serbuffer_l = strlen(d->nmea_buffer);
         if (d->nmea_out_fd != -1)
-            write(d->nmea_out_fd, d->nmea, serbuffer_l);
+            write(d->nmea_out_fd, d->nmea_buffer, serbuffer_l);
 		NMEA_DBG(printf("NMEA: End of nmea->ascii-loop with sentences:%d sentencenum:%d\n", sentences, sentencenum));
 	} while (sentencenum < sentences);
 }
@@ -820,7 +767,7 @@ void protodec_generate_nmea(struct demod_state_t *d, unsigned int bufferlen, uns
 void protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 {
 	unsigned char type = protodec_henten(0, 6, d->rbuffer);
-	uint64_t mmsi = protodec_henten(8, 30, d->rbuffer);
+	uint32_t mmsi = protodec_henten(8, 30, d->rbuffer);
 	unsigned int k, fillbits = 0;
 	time_t received_t;
 	time(&received_t);
@@ -855,7 +802,7 @@ void protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 	if (skip_type[type])
 		return; // ignored by configuration
 
-	printf("ch %c type %d mmsi %09ld:", d->chanid, type, mmsi);
+	printf("type %u mmsi %08u:", type, mmsi);
 
 	switch (type) {
 	case 1: /* position packets */
@@ -905,7 +852,7 @@ void protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 		break;
 	}
 
-	printf(" (!%s)\n", d->nmea);
+	printf(" (!%s)\n", d->nmea_buffer);
 }
 
 void protodec_decode(char *in, unsigned int count, struct demod_state_t *d)
