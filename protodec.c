@@ -28,6 +28,8 @@
 #include <unistd.h>
 #include "protodec.h"
 static const char hex[]="0123456789ABCDEF";
+static const float inv_pi  =  0.3183098733;  /* 0x3ea2f984 */
+static const float invpio2 =  6.3661980629e-01; /* 0x3f22f984 */
 
 //#define DEBUG_NMEA
 #ifdef DEBUG_NMEA
@@ -309,13 +311,64 @@ void protodec_msg_bin(unsigned char *buffer, unsigned int bufferlen, unsigned in
 	}
 }
 
+static const float
+C1  = -5.0000000000e-01,
+C2  =  4.1666667908e-02, /* 0x3d2aaaab */
+C3  = -1.3888889225e-03, /* 0xbab60b61 */
+C4  =  2.4801587642e-05, /* 0x37d00d01 */
+C5  = -2.7557314297e-07, /* 0xb493f27c */
+C6  =  2.0875723372e-09, /* 0x310f74f6 */
+C7  = -1.1359647598e-11; /* 0xad47d74e */
+
+// Differs from libc cosf on [0, pi/2] by at most 0.0000001229f
+// Differs from libc cosf on [0, pi] by at most 0.0000035763f
+static inline float k_cosf(float x)
+{
+    float z = x*x;
+    return (1.0f+z*(C1+z*(C2+z*(C3+z*(C4+z*(C5+z*(C6+z*C7)))))));
+}
+
+
+static const float
+S1  = -1.66666666666666324348e-01, /* 0xBFC55555, 0x55555549 */
+S2  =  8.33333333332248946124e-03, /* 0x3F811111, 0x1110F8A6 */
+S3  = -1.98412698298579493134e-04, /* 0xBF2A01A0, 0x19C161D5 */
+S4  =  2.75573137070700676789e-06, /* 0x3EC71DE3, 0x57B1FE7D */
+S5  = -2.50507602534068634195e-08, /* 0xBE5AE5E6, 0x8A2B9CEB */
+S6  =  1.58969099521155010221e-10; /* 0x3DE5D93A, 0x5ACFD57C */
+
+// Differs from libc sinf on [0, pi/2] by at most 0.0000001192f
+// Differs from libc sinf on [0, pi] by at most 0.0000170176f
+static inline float k_sinf(float x)
+{
+    float z = x*x;
+    return x*(1.0f+z*(S1+z*(S2+z*(S3+z*(S4+z*(S5+z*S6))))));
+}
+
+float fast_cosf(float x) {
+    float y = fabsf(x), z;
+    uint32_t n = (uint32_t)(y*inv_pi);
+    z = k_cosf(y - (float)M_PI*(float)n);
+    return ((n&1) ? -z : z);
+}
+
+float fast_sinf(float x)
+{
+    float y = fabsf(x), z;
+    uint32_t n = (uint32_t)(y*inv_pi);
+    z = k_sinf(y - (float)M_PI*(float)n);
+    z = ((x < 0.0f) ? -z : z);
+    return ((n&1) ? -z : z);
+}
+
+
 float maidenhead_km_distance(float lat1, float lon1, float lat2, float lon2)
 {
-	float sindlat2 = sinf((lat1 - lat2) * 0.5f);
-	float sindlon2 = sinf((lon1 - lon2) * 0.5f);
+	float sindlat2 = fast_sinf((lat1 - lat2) * 0.5f);
+	float sindlon2 = fast_sinf((lon1 - lon2) * 0.5f);
 
-	float coslat1 = cosf(lat1);
-	float coslat2 = cosf(lat2);
+	float coslat1 = fast_cosf(lat1);
+	float coslat2 = fast_cosf(lat2);
 
 	float a = (sindlat2 * sindlat2 + coslat1 * coslat2 * sindlon2 * sindlon2);
 	float c = 2.0f * asinf(sqrtf(a));
