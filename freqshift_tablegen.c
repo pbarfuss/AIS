@@ -83,7 +83,7 @@ void gen_shifttable(FFTComplex *shifttab, unsigned int signal_len, unsigned int 
 static void write_complex_float_array(const char *name, const FFTComplex *data, unsigned int len)
 {
     unsigned int i;
-    printf("static float %s[%u] = {\n", name, len);
+    printf("static FFTComplex %s[%u] = {\n", name, len);
     printf("   ");
     for (i = 0; i < len - 1; i++) {
        printf("{ %.5f, %.5f }, ", data[i].re, data[i].im);
