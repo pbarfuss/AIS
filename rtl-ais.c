@@ -8,21 +8,29 @@
 #include <sys/stat.h>
 #include <signal.h>
 #include "rtl-sdr.h"
-#include "ais.h"
-#include "filtertables.h"
-#define WINDOW_TYPE 9
-#define ALPHA_I0INV_FRAC 0.9363670349f /* fractional part of 1.0 / I0(WINDOW_TYPE * WINDOW_TYPE) */
-#define FFMAX(a,b) ((a) > (b) ? (a) : (b))
-#define FFMIN(a,b) ((a) > (b) ? (b) : (a))
 
-#ifndef FFTCOMPLEX_T_DEFINED
 typedef struct FFTComplex {
     float re, im;
 } FFTComplex;
 #define FFTCOMPLEX_T_DEFINED
-#endif
-FFTComplex resample_scalarproduct_iq_sse(FFTComplex *v1, float *v2, uint32_t len);
-FFTComplex resample_scalarproduct_iq_neon(FFTComplex *v1, float *v2, uint32_t len);
+
+#include "protodec.h"
+#include "filtertables.h"
+#include "fast_atanf.h"
+#define WINDOW_TYPE 9
+#define ALPHA_I0INV_FRAC 0.9363670349f /* fractional part of 1.0 / I0(WINDOW_TYPE * WINDOW_TYPE) */
+#define RTLSDR_SAMPLE_RATE 96000
+#define DOWNSAMPLE_FILTER_LENGTH 128
+#define RRC_BUFLEN 1024
+#define RRC_COEFFS_L 81
+#define INVGAIN 0.7f
+#define	INC	16
+#define FFMAX(a,b) ((a) > (b) ? (a) : (b))
+#define FFMIN(a,b) ((a) > (b) ? (b) : (a))
+
+FFTComplex scalarproduct_iq_c(FFTComplex *v1, float *v2, unsigned int len);
+FFTComplex scalarproduct_iq_sse(FFTComplex *v1, float *v2, unsigned int len);
+FFTComplex scalarproduct_iq_neon(FFTComplex *v1, float *v2, unsigned int len);
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
@@ -35,20 +43,32 @@ FFTComplex resample_scalarproduct_iq_neon(FFTComplex *v1, float *v2, uint32_t le
 static volatile int do_exit = 0;
 static rtlsdr_dev_t *dev = NULL;
 static uint8_t buffer[DEFAULT_BUF_LENGTH]; /* We need this to be a multiple of 16K, as that's the USB URB size */
-extern float *lpf96k;
+
+typedef struct _ais_receiver_t {
+    float rrc_filter_buffer[RRC_BUFLEN];
+    unsigned int rrc_filter_bufidx;
+	int lastbit;
+	unsigned int pll;
+	unsigned int pllinc;
+	struct demod_state_t decoder;
+	int prev;
+	time_t last_levellog;
+} ais_receiver_t;
 
 struct ais_state
 {
-    uint32_t num_rate;
+	FFTComplex prev1, prev2;
 	uint32_t fir_offset;
 	FFTComplex *fbuf;
 	FFTComplex signal[DEFAULT_BUF_LENGTH];  /* float i/q pairs */
 	unsigned int signal_len;
-	FFTComplex *buffer2[DEFAULT_BUF_LENGTH];
-	FFTComplex *buffer3[DEFAULT_BUF_LENGTH];
+	FFTComplex signal2[DEFAULT_BUF_LENGTH];
+	FFTComplex signal3[DEFAULT_BUF_LENGTH];
+	float demod2[DEFAULT_BUF_LENGTH];
+	float demod3[DEFAULT_BUF_LENGTH];
 	uint32_t freq;
-	uint32_t sample_rate;
 	uint32_t output_rate;
+	ais_receiver_t rx1, rx2;
 };
 
 /**
@@ -109,12 +129,100 @@ void hilbert(unsigned char *buf, uint32_t len)
 	}
 }
 
-static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t buffer_len)
+float scalarproduct_float_c(float *v1, float *v2, unsigned int len)
 {
-	float psd = 0.0f;
+    float p = 0.0f;
+    unsigned int i;
+    for (i = 0; i < len; i++) {
+        p += v1[i] * v2[i];
+    }
+    return p;
+}
+
+FFTComplex scalarproduct_iq_c(FFTComplex *v1, float *v2, unsigned int len)
+{
+	FFTComplex p;
+    unsigned int i;
+	p.re = 0.0f;
+	p.im = 0.0f;
+    for (i = 0; i < len; i++) {
+		float t = v2[i];
+		p.re += v1[i].re * t;
+		p.im += v1[i].im * t;
+    }
+    return p;
+}
+
+float fast_atanf(float z)
+{
+  float alpha, angle, base_angle, z_in = z;
+  unsigned int index;
+
+  if (z > 1.0f) {
+    z = 1.0f/z;
+  }
+
+  /* when ratio approaches the table resolution, the angle is */
+  /* best approximated with the argument itself... */
+  if(z < TAN_MAP_RES) {
+    base_angle = z;
+  } else {
+    /* find index and interpolation value */
+    alpha = z * (float)TAN_MAP_SIZE;
+    index = ((unsigned int)alpha) & 0xff;
+    alpha -= (float)index;
+    /* determine base angle based on quadrant and */
+    /* add or subtract table value from base angle based on quadrant */
+    base_angle  =  fast_atan_table[index];
+    base_angle += (fast_atan_table[index + 1] - fast_atan_table[index]) * alpha;
+  }
+
+  if(z_in < 1.0f) { /* -PI/4 -> PI/4 or 3*PI/4 -> 5*PI/4 */
+    angle = base_angle; /* 0 -> PI/4, angle OK */
+  }
+  else { /* PI/4 -> 3*PI/4 or -3*PI/4 -> -PI/4 */
+    angle = (float)M_PI*0.5f - base_angle; /* PI/4 -> PI/2, angle = PI/2 - angle */
+  }
+
+  return (angle);
+}
+
+float polar_disc_fast(FFTComplex a, FFTComplex b)
+{
+    float x = a.re*b.re + a.im*b.im;
+    float y = a.im*b.re - a.re*b.im;
+    float z;
+
+    if ((y != y) || (x != x))
+        return 0.0f;
+
+    y += 1e-12f;
+    if (x < 1e-12f) {
+        z = (float)M_PI * 0.5f;
+    } else {
+        /* compute y/x */
+        z=fast_atanf(fabsf(y/x));
+        if (x < 0.0f) {
+            z = (float)M_PI - z;
+        }
+    }
+
+    if (z != z) {
+        z = 0.0f;
+    }
+
+    if (y < 0.0f) {
+        z = -z;
+    }
+
+    return (z * 0.31831f);
+}
+
+static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t signal_len)
+{
 	unsigned int i, N = DOWNSAMPLE_FILTER_LENGTH;
 
-	for (i = 0; i < buffer_len; i++) {
+	for (i = 0; i < signal_len; i++) {
 		fm->fbuf[i + fm->fir_offset].re = ((float)buffer[2*i] - 127.5f);
 		fm->fbuf[i + fm->fir_offset].im = ((float)buffer[2*i+1] - 127.5f);
 	}
@@ -123,29 +231,116 @@ static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t buffer_le
 		fm->fir_offset = DOWNSAMPLE_FILTER_LENGTH;
 	}
 
-    //fm->signal_len = resample2(fm, fm->signal, fm->fbuf, buffer_len);
-
 	i = 0;
 	fm->signal_len = 0;
-    while (i < buffer_len) {
-        fm->signal[fm->signal_len++] = resample_scalarproduct_iq_sse(&fm->fbuf[i], downsample_filterbank, N);
-        i += fm->num_rate;
+    while (i < signal_len) {
+        fm->signal[fm->signal_len++] = scalarproduct_iq_c(&fm->fbuf[i], downsample81_filterbank, N);
+        i += 8; /* 8->1 downsample */
     }
     for(i=0; i<N; i++) {
-        fm->fbuf[i] = fm->fbuf[i+buffer_len];
+        fm->fbuf[i] = fm->fbuf[i+signal_len];
     }
 
-	/* Okay, so we have audio at 264kHz. AIS has channel widths of 12.5/25kHz, so we need at least
+	/* Okay, so we have audio at 192kHz. AIS has channel widths of 12.5/25kHz, so we need at least
      * 96k samplerate for both. For now, just keep them at 264k.
      * Channel1: just lowpass. Channel2: freq shift first, then lowpass.
      */
-	for(i = 0; i < fm->signal_len; i++) {
+	/* for(i = 0; i < fm->signal_len; i++) {
 		fm->signal2[i] = resample_scalarproduct_iq_sse(&fm->signal[i], lpf96k, 256);
-	}
+	} */
 
 	for (i = 0; i < fm->signal_len; i++) {
-		fm->signal3[i].re = fm->signal[i].re * freqshifttab[i % 132];
-		fm->signal3[i].im = fm->signal[i].im * freqshifttab[i % 132];
+		fm->signal3[i].re = fm->signal[i].re * ais_chan2_shift_to_baseband_table[i % 96].re;
+		fm->signal3[i].im = fm->signal[i].im * ais_chan2_shift_to_baseband_table[i % 96].im;
+	}
+
+    fm->demod2[0] = polar_disc_fast(fm->signal[0], fm->prev1);
+    for (i = 1; i < fm->signal_len; i++) {
+        fm->demod2[i] = polar_disc_fast(fm->signal[i], fm->signal[i-1]);
+    }
+    fm->prev1 = fm->signal[fm->signal_len - 1];
+
+    fm->demod3[0] = polar_disc_fast(fm->signal3[0], fm->prev2);
+    for (i = 1; i < fm->signal_len; i++) {
+        fm->demod3[i] = polar_disc_fast(fm->signal3[i], fm->signal3[i-1]);
+    }
+    fm->prev2 = fm->signal3[fm->signal_len - 1];
+}
+
+static float rrc_filter_run_buf(ais_receiver_t *f, float *in, float *out, unsigned int len)
+{
+    float maxval = 0.0f;
+    unsigned int id = 0, filtidx = f->rrc_filter_bufidx;
+
+	while (id < len) {
+	    f->rrc_filter_buffer[f->rrc_filter_bufidx] = in[id];
+
+		// look for peak volume
+		if (in[id] > maxval)
+			maxval = in[id];
+
+		out[id++] = INVGAIN*scalarproduct_float_c(&f->rrc_filter_buffer[filtidx - RRC_COEFFS_L], rcos_filter_coeffs, 84);
+
+		/* the buffer is much smaller than the incoming chunks */
+		if (filtidx == RRC_BUFLEN-1) {
+			memcpy(f->rrc_filter_buffer,
+			       f->rrc_filter_buffer + RRC_BUFLEN - RRC_COEFFS_L,
+			       RRC_COEFFS_L * sizeof(float));
+            filtidx = RRC_COEFFS_L - 1;
+		}
+        filtidx++;
+	}
+
+    f->rrc_filter_bufidx = filtidx;
+	return maxval;
+}
+
+static void init_ais_receiver(ais_receiver_t *rx)
+{
+	memset(rx, 0, sizeof(ais_receiver_t));
+
+	protodec_initialize(&rx->decoder, 1);
+	rx->rrc_filter_bufidx = RRC_COEFFS_L;
+	rx->lastbit = 0;
+	rx->pll = 0;
+	rx->pllinc = 0x10000 / 5;
+	rx->prev = 0;
+	rx->last_levellog = 0;
+}
+
+static void ais_protodec(ais_receiver_t *rx, float *buf, unsigned int len)
+{
+	float out, maxval = 0.0f;
+    unsigned int i;
+	int curr, bit;
+	char b;
+	float filtered[4096];
+
+	maxval = rrc_filter_run_buf(rx, buf, filtered, len);
+	for (i = 0; i < len; i++) {
+		out = filtered[i];
+		curr = (out > 0);
+
+		if ((curr ^ rx->prev) == 1) {
+			if (rx->pll < (0x10000 / 2)) {
+				rx->pll += rx->pllinc / INC;
+			} else {
+				rx->pll -= rx->pllinc / INC;
+			}
+		}
+		rx->prev = curr;
+		rx->pll += rx->pllinc;
+
+		if (rx->pll > 0xffff) {
+			/* slice */
+			bit = (out > 0);
+			/* nrzi decode */
+			b = !(bit ^ rx->lastbit);
+			/* feed to the decoder */
+			protodec_decode(&b, 1, &rx->decoder);
+			rx->lastbit = bit;
+			rx->pll &= 0xffff;
+		}
 	}
 }
 
@@ -182,15 +377,13 @@ int main(int argc, char **argv)
 	struct sigaction sigact;
 #endif
 	struct ais_state fm;
-	char *filename = NULL;
-	int r, opt, write_wav_hdr = 0;
-	int out_fd = -1;
+	int r, opt;
 	int dev_index = 0, dev_given = 0;
 	int gain = AUTO_GAIN; // tenths of a dB
-	unsigned int ppm_error = 0, capture_freq, sample_rate_khz;
-	unsigned int aislen1 = 0, aislen2 = 0;
-	unsigned char aisout1[1024];
-	unsigned char aisout2[1024];
+	unsigned int ppm_error = 0;
+
+	init_ais_receiver(&fm.rx1);
+	init_ais_receiver(&fm.rx2);
 
 	/*
 	 * AIS is VHF marine 87B and 88B. We want to catch both.
@@ -203,9 +396,8 @@ int main(int argc, char **argv)
      * we're given the lower edge, but actually want the center.
      * Add Fs/4 to deal with this.
      */
-	fm.sample_rate = 1056000;
 	fm.freq = 161975000;
-	fm.freq += (fm.sample_rate >> 2);
+	fm.freq += (RTLSDR_SAMPLE_RATE >> 2);
 
 	/*
      * We need at least 128kHz of spectrum. We also need the output rate
@@ -213,8 +405,7 @@ int main(int argc, char **argv)
      * and an integer multiple of the symbol rate (which is 9600symbols/sec)
      * This gives us 264kHz and a downsampling ratio of 1/4
      */
-	fm.output_rate = 264000;
-	fm.filter_length = 16;
+	fm.output_rate = 192000;
 	fm.fir_offset = 0;
 
 	while ((opt = getopt(argc, argv, "d:g:o:t:r:p:wEA:DNWMULS:CF:h")) != -1) {
@@ -226,14 +417,8 @@ int main(int argc, char **argv)
 		case 'g':
 			gain = (int)(atof(optarg) * 10);
 			break;
-		case 'r':
-			fm.sample_rate = (uint32_t)atofs(optarg);
-			break;
 		case 'p':
 			ppm_error = atoi(optarg);
-			break;
-		case 'F':
-			fm.filter_length = strtoul(optarg, NULL, 10);
 			break;
 		case 'h':
 		default:
@@ -242,14 +427,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (argc <= optind) {
-		filename = "-";
-	} else {
-		filename = argv[optind];
-	}
-
-    fm.num_rate= 4;
-	fm.fbuf = malloc(2* (fm.filter_length + DEFAULT_BUF_LENGTH + 1) * sizeof(float));
+	fm.fbuf = malloc(2* (DOWNSAMPLE_FILTER_LENGTH + DEFAULT_BUF_LENGTH + 1) * sizeof(float));
 	if (!dev_given) {
 		dev_index = rtlsdr_search_for_device("0");
 	}
@@ -289,11 +467,10 @@ int main(int argc, char **argv)
 	}
 
 	/* Set the sample rate */
-	rtlsdr_printf("Sampling at %u Hz.\n", fm.sample_rate);
+	rtlsdr_printf("Sampling at %u Hz.\n", RTLSDR_SAMPLE_RATE);
 	rtlsdr_printf("Output at %u Hz.\n", fm.output_rate);
-	sample_rate_khz = fm.sample_rate / 1000U;
-	rtlsdr_printf("Buffer size: %0.2fms\n", 0.5f * (float)DEFAULT_BUF_LENGTH / (float)sample_rate_khz);
-	r = rtlsdr_set_sample_rate(dev, (uint32_t)fm.sample_rate);
+	rtlsdr_printf("Buffer size: %0.2fms\n", 0.5f * (float)DEFAULT_BUF_LENGTH / 1536.0f);
+	r = rtlsdr_set_sample_rate(dev, RTLSDR_SAMPLE_RATE);
 	if (r < 0) {
 		rtlsdr_printf("WARNING: Failed to set sample rate.\n");
 	}
@@ -315,19 +492,6 @@ int main(int argc, char **argv)
 	}
 	r = rtlsdr_set_freq_correction(dev, ppm_error);
 
-	if (strcmp(filename, "-") == 0) { /* Write samples to stdout */
-		out_fd = 1;
-#ifdef _WIN32
-		_setmode(out_fd, _O_BINARY);
-#endif
-	} else {
-		out_fd = open(filename, O_WRONLY|O_CREAT|O_APPEND, 0644);
-		if (out_fd < 0) {
-			rtlsdr_printf("Failed to open %s\n", filename);
-			exit(1);
-		}
-	}
-
 	/* Reset endpoint before we start reading from it (mandatory) */
 	r = rtlsdr_reset_buffer(dev);
 	if (r < 0) {
@@ -348,17 +512,11 @@ int main(int argc, char **argv)
 		full_demod(&fm, buffer, (n_read >> 1));
 
 		/* AIS protocol decode */
-		aislen1 = ais_protodec(fm.buffer2, fm.buffer_len, aisout1, 1024);
-		aislen2 = ais_protodec(fm.buffer3, fm.buffer_len, aisout2, 1024);
-
-		write(out_fd, aisout1, aislen1);
-		write(out_fd, aisout2, aislen2);
+		ais_protodec(&fm.rx1, fm.demod2, fm.signal_len);
+		ais_protodec(&fm.rx2, fm.demod3, fm.signal_len);
 	}
 
 	rtlsdr_printf("\nUser cancel, exiting...\n");
-	if ((out_fd >= 0) && (out_fd != 1))
-		close(out_fd);
-
 	rtlsdr_close(dev);
 	return r >= 0 ? r : -r;
 }
