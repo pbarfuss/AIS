@@ -9,6 +9,7 @@
 #include <signal.h>
 #include "rtl-sdr.h"
 #include "ais.h"
+#include "filtertables.h"
 #define WINDOW_TYPE 9
 #define ALPHA_I0INV_FRAC 0.9363670349f /* fractional part of 1.0 / I0(WINDOW_TYPE * WINDOW_TYPE) */
 #define FFMAX(a,b) ((a) > (b) ? (a) : (b))
@@ -40,8 +41,6 @@ struct ais_state
 {
     uint32_t num_rate;
 	uint32_t fir_offset;
-    float *filter_bank;
-    uint32_t filter_length;
 	FFTComplex *fbuf;
 	FFTComplex signal[DEFAULT_BUF_LENGTH];  /* float i/q pairs */
 	unsigned int signal_len;
@@ -110,71 +109,10 @@ void hilbert(unsigned char *buf, uint32_t len)
 	}
 }
 
-static const float inv_pi  =  0.3183098733;  /* 0x3ea2f984 */
-
-static const float
-S1  = -1.66666666666666324348e-01, /* 0xBFC55555, 0x55555549 */
-S2  =  8.33333333332248946124e-03, /* 0x3F811111, 0x1110F8A6 */
-S3  = -1.98412698298579493134e-04, /* 0xBF2A01A0, 0x19C161D5 */
-S4  =  2.75573137070700676789e-06, /* 0x3EC71DE3, 0x57B1FE7D */
-S5  = -2.50507602534068634195e-08, /* 0xBE5AE5E6, 0x8A2B9CEB */
-S6  =  1.58969099521155010221e-10; /* 0x3DE5D93A, 0x5ACFD57C */
-
-// Differs from libc sinf on [0, pi/2] by at most 0.0000001192f
-// Differs from libc sinf on [0, pi] by at most 0.0000170176f
-static inline float k_sinf(float x)
-{
-    float z = x*x;
-    return x*(1.0f+z*(S1+z*(S2+z*(S3+z*(S4+z*(S5+z*S6))))));
-}
-
-static float sinc(float x)
-{
-    float fn, y, z;
-    uint32_t n;
-    if (x < 0.0f) {
-        x = -x;
-    }
-
-    if (x < 1e-5f) {
-        z = 1.0f;
-    } else {
-		n = (uint32_t)(x*inv_pi);
-		fn = (float)n;
-		y = x - fn*(float)M_PI;
-        z = k_sinf(y) / x;
-        if (n&1) {
-            z = -z;
-        }
-    }
-    return z;
-}
-
-static void build_filter(struct ais_state *fm, unsigned int num_rate, unsigned int alpha)
-{
-    int32_t j, N2;
-    //float cutoff= FFMAX(1.0f - 6.5f/(fm->filter_length+8.0f), 0.9f);
-    float cutoff= FFMAX(1.0f - 6.5f/(fm->filter_length+8.0f), 0.8f);
-    cutoff *= (1.0f / (float)num_rate);
-	fm->filter_length *= num_rate;
-	fm->filter_length &= ~3;
-	fm->filter_bank = malloc((fm->filter_length + 1) * sizeof(float));
-
-    N2 = (fm->filter_length >> 1);
-    for (j=0;j<fm->filter_length;j++) {
-        float x = (float)(N2-j-1);
-        float tmp = fabsf(x/(float)N2);
-        tmp = (1.0f - tmp*tmp);
-        fm->filter_bank[j] = 0.015625f * cutoff * sinc((float)M_PI * x * cutoff) * I0(alpha * alpha * tmp) * ALPHA_I0INV_FRAC;
-    }
-}
-
 static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t buffer_len)
 {
-	float freqshift = 2 * (float)M_PI * (50000.0f / 264000.0f); // radians per sample
-	float phase = -(float)M_PI;
 	float psd = 0.0f;
-	unsigned int i, N = fm->filter_length;
+	unsigned int i, N = DOWNSAMPLE_FILTER_LENGTH;
 
 	for (i = 0; i < buffer_len; i++) {
 		fm->fbuf[i + fm->fir_offset].re = ((float)buffer[2*i] - 127.5f);
@@ -182,7 +120,7 @@ static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t buffer_le
 	}
 
 	if (!fm->fir_offset) {
-		fm->fir_offset = fm->filter_length;
+		fm->fir_offset = DOWNSAMPLE_FILTER_LENGTH;
 	}
 
     //fm->signal_len = resample2(fm, fm->signal, fm->fbuf, buffer_len);
@@ -190,7 +128,7 @@ static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t buffer_le
 	i = 0;
 	fm->signal_len = 0;
     while (i < buffer_len) {
-        fm->signal[fm->signal_len++] = resample_scalarproduct_iq_sse(&fm->fbuf[i], fm->filter_bank, N);
+        fm->signal[fm->signal_len++] = resample_scalarproduct_iq_sse(&fm->fbuf[i], downsample_filterbank, N);
         i += fm->num_rate;
     }
     for(i=0; i<N; i++) {
@@ -206,11 +144,8 @@ static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t buffer_le
 	}
 
 	for (i = 0; i < fm->signal_len; i++) {
-		fm->signal3[i].re = fm->signal[i].re * fast_cosf(phase);
-		fm->signal3[i].im = fm->signal[i].im * fast_sinf(phase);
-		/* Advance local oscillator phase */
-		phase += freqshift;
-		if (phase >= (float)M_PI) phase -= 2 * (float)M_PI;
+		fm->signal3[i].re = fm->signal[i].re * freqshifttab[i % 132];
+		fm->signal3[i].im = fm->signal[i].im * freqshifttab[i % 132];
 	}
 }
 
@@ -314,8 +249,6 @@ int main(int argc, char **argv)
 	}
 
     fm.num_rate= 4;
-    build_filter(&fm, fm.num_rate, WINDOW_TYPE);
-
 	fm.fbuf = malloc(2* (fm.filter_length + DEFAULT_BUF_LENGTH + 1) * sizeof(float));
 	if (!dev_given) {
 		dev_index = rtlsdr_search_for_device("0");
@@ -344,6 +277,9 @@ int main(int argc, char **argv)
 	SetConsoleCtrlHandler((PHANDLER_ROUTINE) sighandler, TRUE);
 #endif
 
+	/* Disable PLL dithering, needed to get reasonable fingerprinting IDs. */
+	rtlsdr_set_dithering(dev, 0);
+
 	/* Set the frequency */
 	r = rtlsdr_set_center_freq(dev, (uint32_t)fm.freq);
 	if (r < 0) {
@@ -367,7 +303,6 @@ int main(int argc, char **argv)
 		r = rtlsdr_set_tuner_gain_mode(dev, 0);
 	} else {
 		r = rtlsdr_set_tuner_gain_mode(dev, 1);
-		gain = rtlsdr_get_nearest_gain(dev, gain);
 		r = rtlsdr_set_tuner_gain(dev, gain);
 	}
 
