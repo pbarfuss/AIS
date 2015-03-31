@@ -333,8 +333,10 @@ static inline void update_range(struct demod_state_t *d, float lat, float lon)
 		return;
 
 	float distance = maidenhead_km_distance(mylat, mylng, lat2rad(lat), lat2rad(lon));
-	if (distance > d->best_range)
+	if (distance > d->best_range) {
+        printf("updating range: old: %.5f, new: %.5f\n", d->best_range, distance);
 		d->best_range = distance;
+    }
 }
 
 /*
