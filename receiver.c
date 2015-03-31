@@ -27,7 +27,7 @@
 #include "receiver.h"
 #define	INC	16
 #define FILTERED_LEN 4096
-extern int sound_levellog;
+unsigned int sound_levellog = 0;
 
 #if 0
 static float rcos_filter_coeffs[]={
@@ -72,67 +72,48 @@ static float rcos_filter_coeffs[84] = {
 
 /* ---------------------------------------------------------------------- */
 
-void filter_init(struct filter *f)
-{
-	f->idx = COEFFS_L;
-}
-
-float filter_run_buf(struct filter *f, float *in, float *out, unsigned int len)
+float filter_run_buf(ais_receiver_t *f, float *in, float *out, unsigned int len)
 {
     float maxval = 0.0f;
-    unsigned int id = 0, filtidx = f->idx;
+    unsigned int id = 0, filtidx = f->rrc_filter_bufidx;
 
 	while (id < len) {
-	    f->buffer[f->idx] = in[id];
+	    f->rrc_filter_buffer[f->rrc_filter_bufidx] = in[id];
 
 		// look for peak volume
 		if (in[id] > maxval)
 			maxval = in[id];
 
-		out[id++] = INVGAIN*scalarproduct_float_sse(&f->buffer[filtidx - COEFFS_L], rcos_filter_coeffs, 84);
+		out[id++] = INVGAIN*scalarproduct_float_sse(&f->rrc_filter_buffer[filtidx - COEFFS_L], rcos_filter_coeffs, 84);
 
 		/* the buffer is much smaller than the incoming chunks */
-		if (filtidx == BufferLen-1) {
-			memcpy(f->buffer,
-			       f->buffer + BufferLen - COEFFS_L,
+		if (filtidx == RRC_BUFLEN-1) {
+			memcpy(f->rrc_filter_buffer,
+			       f->rrc_filter_buffer + RRC_BUFLEN - COEFFS_L,
 			       COEFFS_L * sizeof(float));
             filtidx = COEFFS_L - 1;
 		}
         filtidx++;
 	}
 
-    f->idx = filtidx;
+    f->rrc_filter_bufidx = filtidx;
 	return maxval;
 }
 
-struct receiver *init_receiver(char name, int nmea_out_fd)
+void init_ais_receiver(ais_receiver_t *rx, int nmea_out_fd)
 {
-	struct receiver *rx;
+	memset(rx, 0, sizeof(ais_receiver_t));
 
-	rx = (struct receiver *) malloc(sizeof(struct receiver));
-	memset(rx, 0, sizeof(struct receiver));
-
-	filter_init(&(rx->filter));
-
-	protodec_initialize(&rx->decoder, nmea_out_fd, name);
-	rx->name = name;
+	protodec_initialize(&rx->decoder, nmea_out_fd);
+	rx->rrc_filter_bufidx = COEFFS_L;
 	rx->lastbit = 0;
 	rx->pll = 0;
 	rx->pllinc = 0x10000 / 5;
 	rx->prev = 0;
 	rx->last_levellog = 0;
-
-	return rx;
 }
 
-void free_receiver(struct receiver *rx)
-{
-	if (rx) {
-		free(rx);
-	}
-}
-
-void receiver_run(struct receiver *rx, float *buf, unsigned int len)
+void ais_receiver_run(ais_receiver_t *rx, float *buf, unsigned int len)
 {
 	float out, maxval = 0.0f;
     unsigned int i;
@@ -150,7 +131,7 @@ void receiver_run(struct receiver *rx, float *buf, unsigned int len)
         return;
     }
 
-	maxval = filter_run_buf(&rx->filter, buf, filtered, len);
+	maxval = filter_run_buf(rx, buf, filtered, len);
 	for (i = 0; i < len; i++) {
 		out = filtered[i];
 		curr = (out > 0);
@@ -182,10 +163,10 @@ void receiver_run(struct receiver *rx, float *buf, unsigned int len)
 	level_distance = time(NULL) - rx->last_levellog;
 
 	if (level > 95.0f && (level_distance >= 30 || level_distance >= sound_levellog)) {
-		printf("Level on ch %c too high: %.0f %%", rx->decoder.chanid, level);
+		printf("Level too high: %.0f %%", level);
 		time(&rx->last_levellog);
 	} else if (sound_levellog != 0 && level_distance >= sound_levellog) {
-		printf("Level on ch %c: %.0f %%", rx->decoder.chanid, level);
+        printf("Level: %.0f %%", level);
 		time(&rx->last_levellog);
 	}
 }

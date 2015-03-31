@@ -29,33 +29,23 @@
 #include <math.h>
 #include <time.h>
 #include "protodec.h"
-#define BufferLen 1024
+#define RRC_BUFLEN 1024
 
 /* ---------------------------------------------------------------------- */
 
-struct filter {
-    float buffer[BufferLen];
-    unsigned int idx;
-};
-
-extern void filter_init(struct filter *f);
-extern float filter_run_buf(struct filter *f, float *in, float *out, unsigned int len);
-
-/* ---------------------------------------------------------------------- */
-
-struct receiver {
-	struct filter filter;
-	char name;
+typedef struct _ais_receiver_t {
+    float rrc_filter_buffer[RRC_BUFLEN];
+    unsigned int rrc_filter_bufidx;
 	int lastbit;
 	unsigned int pll;
 	unsigned int pllinc;
 	struct demod_state_t decoder;
 	int prev;
 	time_t last_levellog;
-};
+} ais_receiver_t;
 
-extern struct receiver *init_receiver(char name, int nmea_out_fd);
-extern void free_receiver(struct receiver *rx);
-extern void receiver_run(struct receiver *rx, float *buf, unsigned int len);
+extern void init_ais_receiver(ais_receiver_t *rx, int nmea_out_fd);
+extern float filter_run_buf(ais_receiver_t *f, float *in, float *out, unsigned int len);
+extern void ais_receiver_run(ais_receiver_t *rx, float *buf, unsigned int len);
 
 #endif
