@@ -11,10 +11,10 @@ all: rtl-ais
 build: all
 
 .o: %.c
-    $(CC) $(INCLUDES) $(CFLAGS) -c $<
+	$(CC) $(INCLUDES) $(CFLAGS) -c $<
 
-rtl-ais: rtl-ais.o ais.o msk.o polar_disc.o receiver.o protodec.o librtlsdr.o tuner_e4k.o tuner_r82x.o
-	$(CC) -o rtl-ais rtl-ais.o ais.o msk.o polar_disc.o receiver.o protodec.o librtlsdr.o tuner_e4k.o tuner_r82x.o -lusb-1.0
+rtl-ais: rtl-ais.o msk.o protodec.o librtlsdr.o tuner_e4k.o tuner_r82x.o
+	$(CC) -o rtl-ais rtl-ais.o msk.o protodec.o librtlsdr.o tuner_e4k.o tuner_r82x.o -lusb-1.0
 
 clean:
 	rm -f rtl-ais
