@@ -550,11 +550,10 @@ int e4k_init(struct e4k_state *e4k)
 
 	/* Initialize DC offset lookup tables */
 	e4k_dc_offset_gen_table(e4k);
-
+#endif
 	/* Enable time variant DC correction */
 	e4k_reg_write(e4k, E4K_REG_DCTIME1, 0x01);
 	e4k_reg_write(e4k, E4K_REG_DCTIME2, 0x01);
-#endif
 
 	/* Set LNA/Mixer gain control mode to manual */
 	e4k_reg_write(e4k, E4K_REG_AGC4, 0x10); /* High threshold */
@@ -576,10 +575,14 @@ int e4k_init(struct e4k_state *e4k)
 	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_RC, 2600);
     e4k_reg_set_mask(e4k, 0x12, 0x20, 0x20);
 
-	/* Disable time variant DC correction and LUT */
-	e4k_reg_set_mask(e4k, E4K_REG_DC5, 0x03, 0);
-	e4k_reg_set_mask(e4k, E4K_REG_DCTIME1, 0x03, 0);
-	e4k_reg_set_mask(e4k, E4K_REG_DCTIME2, 0x03, 0);
+    /* make sure the DC range detector is enabled */
+    e4k_reg_set_mask(e4k, 0x2d, 0x04, 0x04);
+
+    /* perform DC offset calibration */
+    e4k_reg_write(e4k, 0x29, 0x01);
+
+	/* Disable DC LUT */
+	e4k_reg_set_mask(e4k, 0x2d, 0x03, 0);
 
 	return 0;
 }
