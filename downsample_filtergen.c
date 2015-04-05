@@ -60,7 +60,7 @@ static float sinc(float x)
     if (x < 1e-12f) {
         z = 1.0f;
     } else {
-        float y, z, fn;
+        float y, fn;
         uint32_t n  = (int32_t)(x*inv_pi);
         fn = (float)n;
         y = x-fn*pi_1-fn*pi_1t; /* 1st round good to 40 bit */
