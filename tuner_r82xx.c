@@ -710,9 +710,9 @@ int r82xx_init(struct r82xx_priv *priv)
 	priv->reg_cache = 1;
 
     /* lna   vth 0.84, vtl 0.64 */
-    rc |= r82xx_write_reg(dev, 0x0d, 0x73);
+    rc |= r82xx_write_reg(priv, 0x0d, 0x73);
     /* mixer vth 1.04, vtl 0.84 */
-    rc |= r82xx_write_reg(dev, 0x0e, 0x73);
+    rc |= r82xx_write_reg(priv, 0x0e, 0x73);
 
 	if (rc < 0)
 		rtlsdr_printf("r82xx_init: failed=%d\n", rc);
