@@ -64,7 +64,7 @@ static const uint8_t r82xx_init_array[NUM_REGS] = {
     0x6c, 0xbb, 0x80, 0x00,         /* 10 to 13 */
     0x0f, 0x00, 0xc0, 0x30,         /* 14 to 17 */
     0x48, 0xec, 0x60, 0x00,         /* 18 to 1b */
-    0x24, 0xe5, 0x6a, 0x40          /* 1c to 1f */
+    0x24, 0xc5, 0x6a, 0x40          /* 1c to 1f */
 };
 
 /* Tuner frequency ranges */
@@ -301,8 +301,8 @@ static int r82xx_set_mux(struct r82xx_priv *priv, uint32_t freq)
 	if (rc < 0)
 		return rc;
 
-	rc  = r82xx_write_reg_mask(priv, 0x08, 0x00, 0x3f);
-	rc |= r82xx_write_reg_mask(priv, 0x09, 0x00, 0x3f);
+	r82xx_write_reg_mask(priv, 0x08, 0x00, 0x3f);
+	r82xx_write_reg_mask(priv, 0x09, 0x00, 0x3f);
 	return rc;
 }
 
@@ -437,25 +437,6 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	return rc;
 }
 
-static int r82xx_sysfreq_sel(struct r82xx_priv *priv, uint32_t freq)
-{
-	int rc = 0;
-
-	rc |= r82xx_write_reg(priv, 0x1d, 0xc5); /* detect bw 3, lna top:0, predet top:2 */
-	rc |= r82xx_write_reg(priv, 0x1c, 0x24); /* mixer top:13 , top-1, low-discharge */
-
-	/* Air-IN only for Astrometa */
-	rc |= r82xx_write_reg_mask(priv, 0x05, 0x00, 0x60);
-
-	/* 0: PRE_DECT off - datasheet seems to claim bit 7 is indeed turning something off when set to 0:
-     *    the narrowband LNA power detector (bit 6 is PRE_DECT off, bit 3 is Cable2 LNA off */
-	rc |= r82xx_write_reg_mask(priv, 0x06, 0x00, 0x48);
-
-	/* LNA discharge current */
-	rc |= r82xx_write_reg_mask(priv, 0x1e, 14, 0x1f);
-    return rc;
-}
-
 #if 0
 static int r82xx_filter_calibrate(struct r82xx_priv *priv) {
     int rc;
@@ -465,11 +446,6 @@ static int r82xx_filter_calibrate(struct r82xx_priv *priv) {
     for (i = 0; i < 5; i++) {
         /* set cali clk =on */
         rc = r82xx_write_reg_mask(priv, 0x0f, 0x04, 0x04);
-        if (rc < 0)
-            return rc;
-
-        /* X'tal cap 0pF for PLL */
-        rc = r82xx_write_reg_mask(priv, 0x10, 0x00, 0x03);
         if (rc < 0)
             return rc;
 
@@ -508,50 +484,6 @@ static int r82xx_filter_calibrate(struct r82xx_priv *priv) {
     return rc;
 }
 #endif
-
-static int r82xx_init_tv_standard(struct r82xx_priv *priv)
-{
-    /* everything that was previously done in r82xx_set_tv_standard
-     * and doesn't need to be changed when filter settings change */
-    int rc;
-    uint8_t filt_q = 0x10;  /* r10[4]:low q(1'b1) */
-
-    /* Initialize the shadow registers */
-    memcpy(priv->regs, r82xx_init_array, sizeof(r82xx_init_array));
-
-    /* Init Flag & Xtal_check Result, version */
-    rc = r82xx_write_reg_mask(priv, 0x13, VER_NUM, 0x3f);
-	priv->input = 0x00;
-
-    //priv->fil_cal_code = 0x0f; /* seriously? */
-    //r82xx_filter_calibrate(priv);
-    priv->fil_cal_code = 0x01; /* seriously? */
-    rc |= r82xx_write_reg_mask(priv, 0x0a,
-                  filt_q | priv->fil_cal_code, 0x1f);
-
-    /* Set Img_R */
-    rc |= r82xx_write_reg_mask(priv, 0x07, 0x00, 0x80); /* image negative - needed? should be default & is never touched */
-
-    /* Set filt_3dB, V6MHz */
-    rc |= r82xx_write_reg_mask(priv, 0x06, 0x10, 0x30); /* +3db, 6mhz on - according to datasheet, this is +0db, 6mhz on */
-
-    /* channel filter extension */
-    rc |= r82xx_write_reg_mask(priv, 0x1e, 0x60, 0x60); /* r30[6]=1 ext enable; r30[5]:1 ext at lna max-1 */
-
-    /* filter extension widest */
-    rc |= r82xx_write_reg_mask(priv, 0x0f, 0x00, 0x80); /* r15[7]: flt_ext_wide off */
-
-    /* RF poly filter current */
-    rc |= r82xx_write_reg_mask(priv, 0x19, 0x60, 0x60); /* r25[6:5]:min */
-
-    /* set fixed VGA gain (16.3 dB) */
-    rc |= r82xx_write_reg_mask(priv, 0x0c, 0x08, 0x9f);
-
-    /* Set filt_cap */
-    rc |= r82xx_write_reg_mask(priv, 0x0b, 0x60, 0x60); /* +2cap */
-
-    return 0;
-}
 
 int r82xx_set_bw(struct r82xx_priv *priv, uint32_t bw) {
     int rc;
@@ -678,10 +610,7 @@ int r82xx_set_lna_gain(struct r82xx_priv *priv, unsigned int gain)
 
 int r82xx_set_mixer_gain(struct r82xx_priv *priv, unsigned int gain)
 {
-    uint8_t mix_index = 0;
-
-    if (gain > 31) gain = 31;
-    mix_index = (gain >> 1);
+    uint8_t mix_index = ((gain >> 1) & 0x0f);
 
     /* set Mixer gain */
     return r82xx_write_reg_mask(priv, 0x07, mix_index, 0x0f);
@@ -739,19 +668,13 @@ int r82xx_standby(struct r82xx_priv *priv)
                                             // Cable2 LNA Off, LNA Power: Min
 	rc |= r82xx_write_reg(priv, 0x05, 0x03); // Loop-Through On, Cable1 LNA Off, Air-In LNA Off, LNA Gain Mode: Auto
 	rc |= r82xx_write_reg(priv, 0x07, 0x3a); // Image Negative, Mixer Power Off, Mixer Gain Mode: Auto
-	rc |= r82xx_write_reg(priv, 0x08, 0x40);
-	rc |= r82xx_write_reg(priv, 0x09, 0xc0);
 	rc |= r82xx_write_reg(priv, 0x0a, 0x36); // Channel Filter: Set Values to Default, Turn Off
-	rc |= r82xx_write_reg(priv, 0x0c, 0x48); // ADC Power On, VGA Power On, VGA Gain: Manual, 16.3dB
 	rc |= r82xx_write_reg(priv, 0x0f, 0x68); // LDO Power Off, Clk Output Off, Ring PLL Refclock Off,
                                              // Ch_Filt Calibration Clk Off, Internal AGC Clock ON(!)
 	rc |= r82xx_write_reg(priv, 0x11, 0x03);
 	rc |= r82xx_write_reg(priv, 0x17, 0xf4); // PLL digital low drop out regulator supply current Off, Prescale Current 150uA,
                                              // Open-Drain: High-Z, IQ Generator: Div_Mid, Buf_Min, Power Off
 	rc |= r82xx_write_reg(priv, 0x19, 0x0c); // RingPLL VCO Power Max
-
-	/* Force initial calibration */
-	//priv->type = -1;
 
 	priv->reg_cache = 1;
 	return rc;
@@ -771,13 +694,25 @@ int r82xx_init(struct r82xx_priv *priv)
 	/* Initialize registers */
 	priv->reg_cache = 0;
 	rc = r82xx_write(priv, 0x05, r82xx_init_array, sizeof(r82xx_init_array));
-	rc |= r82xx_init_tv_standard(priv);
+
+    /* Initialize the shadow registers */
+    memcpy(priv->regs, r82xx_init_array, sizeof(r82xx_init_array));
+
+    /* Init Flag & Xtal_check Result, version */
+    rc |= r82xx_write_reg_mask(priv, 0x13, VER_NUM, 0x3f);
+	priv->input = 0x00;
+
+    //r82xx_filter_calibrate(priv);
+    priv->fil_cal_code = 0x00; /* seriously? */
 
 	/* r82xx_set_bw will always be called by rtlsdr_set_sample_rate,
 	   so there's no need to call r82xx_set_if_filter here */
-
-	rc |= r82xx_sysfreq_sel(priv, 0);
 	priv->reg_cache = 1;
+
+    /* lna   vth 0.84, vtl 0.64 */
+    rc |= r82xx_write_reg(dev, 0x0d, 0x73);
+    /* mixer vth 1.04, vtl 0.84 */
+    rc |= r82xx_write_reg(dev, 0x0e, 0x73);
 
 	if (rc < 0)
 		rtlsdr_printf("r82xx_init: failed=%d\n", rc);
