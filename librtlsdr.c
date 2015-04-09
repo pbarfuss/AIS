@@ -606,12 +606,12 @@ static int rtlsdr_set_fir(rtlsdr_dev_t *dev, int *fir_coeffs)
 		}
 		fir[8+i*3  ] = val0 >> 4;
 		fir[8+i*3+1] = (val0 << 4) | ((val1 >> 8) & 0x0f);
-		fir[8+i*3+2] = val1;
+		fir[8+i*3+2] = (val1 & 0xff);
 	}
 
 	for (i = 0; i < 20; i++) {
 		if (rtlsdr_demod_write_reg(dev, 1, 0x1c + i, fir[i], 1))
-				return -1;
+			return -1;
 	}
 
 	return 0;
