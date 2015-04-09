@@ -27,43 +27,22 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "protodec.h"
+#define RAD_2_DEG 57.295779513f
+#define DEG_2_RAD  0.0174532925f
 static const char hex[]="0123456789ABCDEF";
 static const float inv_pi  =  0.3183098733;  /* 0x3ea2f984 */
-static const float invpio2 =  6.3661980629e-01; /* 0x3f22f984 */
 
-//#define DEBUG_NMEA
-#ifdef DEBUG_NMEA
-#define NMEA_DBG(x) x
-#else
-#define NMEA_DBG(x)
-#endif
-
-float mylat = -200.0;
-float mylng = -200.0;
-int have_my_loc;
-
-#define MAX_AIS_PACKET_TYPE 24
-extern int skip_type[];
-
-static inline float lat2rad(float lat)
-{
-	return (lat * (M_PI / 180.0f));
-}
+float mylat =  44.635225f;
+float mylng = -63.593534f;
 
 void protodec_initialize(struct demod_state_t *d, int serial_out_fd)
 {
 	memset(d, 0, sizeof(struct demod_state_t));
-
     d->nmea_out_fd = serial_out_fd;
-
 	d->receivedframes = 0;
 	d->lostframes = 0;
 	d->lostframes2 = 0;
 	d->seqnr = 0;
-}
-
-void protodec_deinit(struct demod_state_t *d)
-{
 }
 
 void protodec_reset(struct demod_state_t *d)
@@ -94,55 +73,53 @@ unsigned short protodec_sdlc_crc(const unsigned char *data, unsigned len)
 {
 	unsigned short c, crc = 0xffff;
 
-	while (len--)
+	while (len--) {
 		for (c = 0x100 + *data++; c > 1; c >>= 1)
 			if ((crc ^ c) & 1)
 				crc = (crc >> 1) ^ 0x8408;
 			else
 				crc >>= 1;
+    }
 	return ~crc;
-
 }
 
+/*
+ * FIXME: remove the silly bitreversal into a separate buffer crap.
+ */
 int protodec_calculate_crc(unsigned int length_bits, struct demod_state_t *d)
 {
-	unsigned char *buf;
+	unsigned char buf[128+3], tmp;
 	unsigned int i, j, length_bytes = (length_bits >> 3);
-	unsigned char tmp;
+    unsigned short crc, stored_crc = 0;
 
 	/* what is this?
      * bit-packing, you sillies -- bofh
      */
-	buf = (unsigned char *) malloc(length_bytes + 3);
-	for (j = 0; j < length_bytes+2; j++) {
+	for (j = 0; j < length_bytes; j++) {
 		tmp = 0;
 		for (i = 0; i < 8; i++)
-			tmp |= ((d->buffer[i + 8 * j]) << i);
+			tmp |= ((d->buffer[8*j+i]) << i);
 		buf[j] = tmp;
 	}
 
 	/* ok, here's the actual CRC calculation */
-	unsigned short crc = protodec_sdlc_crc(buf, length_bytes+2);
-	//DBG(printf("CRC: %04x\n",crc));
+	for (i = 0; i < 16; i++)
+		stored_crc |= ((d->buffer[8*length_bytes+i]) << i);
+	crc = protodec_sdlc_crc(buf, length_bytes);
+	printf("CRC: stored: 0x%04x, computed: 0x%04x\n", stored_crc, crc);
 
-	/* what is this? */
-	if (length_bytes*8 >= DEMOD_BUFFER_LEN) {
-	    printf("protodec_calculate_crc: would run over rbuffer length");
-	    free(buf);
-	    return 0;
-    }
-
-    for (j = 0; j < DEMOD_BUFFER_LEN; j++) {
-        d->buffer[j] = 0;
-    }
 	for (j = 0; j < length_bytes; j++) {
 		for (i = 0; i < 8; i++) {
+			//d->rbuffer[8*j+7-i] = d->buffer[8*j+i];
 			d->rbuffer[8*j+i] = (buf[j] >> (7 - i)) & 1;
 		}
 	}
+    for (j = 0; j < DEMOD_BUFFER_LEN; j++) {
+        d->buffer[j] = 0;
+    }
 
-	free(buf);
-	return (crc == 0x0f47);
+	//return (crc == 0x0f47);
+	return (crc == stored_crc);
 }
 
 /*
@@ -251,7 +228,7 @@ const char *appid_ifm(unsigned int i)
  *	binary message decoding
  */
 
-void protodec_msg_40(unsigned char *buffer, unsigned int bufferlen, unsigned int msg_start, time_t received_t, uint32_t mmsi)
+void protodec_msg_40(unsigned char *buffer, unsigned int bufferlen, unsigned int msg_start)
 {
 	int people_on_board = protodec_henten(msg_start, 13, buffer);
 	printf(" persons-on-board %d", people_on_board);
@@ -260,51 +237,56 @@ void protodec_msg_40(unsigned char *buffer, unsigned int bufferlen, unsigned int
 void protodec_msg_11(unsigned char *buffer, unsigned int bufferlen, unsigned int msg_start, time_t received_t, uint32_t mmsi)
 {
 	int latitude = protodec_henten(msg_start, 24, buffer);
-	int longitude = protodec_henten(msg_start += 24, 25, buffer);
-	//int datetime = protodec_henten(msg_start += 25, 16, buffer);
-	int wind_speed = protodec_henten(msg_start += 16, 7, buffer);
-	int wind_gust = protodec_henten(msg_start += 7, 7, buffer);
-	int wind_dir = protodec_henten(msg_start += 7, 9, buffer);
-	int wind_gust_dir = protodec_henten(msg_start += 9, 9, buffer);
-	int air_temp = protodec_henten(msg_start += 9, 11, buffer);
-	int rel_humid = protodec_henten(msg_start += 11, 7, buffer);
-	int dew_point = protodec_henten(msg_start += 7, 10, buffer);
-	int air_press = protodec_henten(msg_start += 10, 9, buffer) + 800;
-	int air_press_tend = protodec_henten(msg_start += 9, 2, buffer);
-	int horiz_visib_nm = protodec_henten(msg_start += 2, 8, buffer);
-	int water_level = protodec_henten(msg_start += 8, 9, buffer);
-	//int water_trend = protodec_henten(msg_start += 9, 2, buffer);
-	//int surface_current_speed = protodec_henten(msg_start += 2, 8, buffer);
-	//int surface_current_dir = protodec_henten(msg_start += 8, 9, buffer);
-	//int d1_current_speed = protodec_henten(msg_start += 9, 8, buffer);
-	//int d1_current_dir = protodec_henten(msg_start += 8, 9, buffer);
-	//int d1_current_depth = protodec_henten(msg_start += 9, 5, buffer);
-	//int d2_current_speed = protodec_henten(msg_start += 5, 8, buffer);
-	//int d2_current_dir = protodec_henten(msg_start += 8, 9, buffer);
-	//int d2_current_depth = protodec_henten(msg_start += 9, 5, buffer);
-	int wave_height_significant = protodec_henten(msg_start += 5, 8, buffer);
-	//int wave_period = protodec_henten(msg_start += 8, 6, buffer);
-	//int wave_dir = protodec_henten(msg_start += 6, 9, buffer);
-	//int swell_height = protodec_henten(msg_start += 9, 8, buffer);
-	//int swell_period = protodec_henten(msg_start += 8, 6, buffer);
-	//int swell_dir = protodec_henten(msg_start += 6, 9, buffer);
-	//int sea_state = protodec_henten(msg_start += 9, 4, buffer);
-	int water_temp = protodec_henten(msg_start += 4, 10, buffer);
+	int longitude = protodec_henten(msg_start+24, 25, buffer);
+	int wind_speed = protodec_henten(msg_start+40, 7, buffer);
+	int wind_gust = protodec_henten(msg_start+47, 7, buffer);
+	int wind_dir = protodec_henten(msg_start+54, 9, buffer);
+	int wind_gust_dir = protodec_henten(msg_start+63, 9, buffer);
+	int air_temp = protodec_henten(msg_start+72, 11, buffer);
+	int rel_humid = protodec_henten(msg_start+83, 7, buffer);
+	int dew_point = protodec_henten(msg_start+90, 10, buffer);
+	int air_press = protodec_henten(msg_start+100, 9, buffer) + 800;
+	int air_press_tend = protodec_henten(msg_start+109, 2, buffer);
+	int horiz_visib_nm = protodec_henten(msg_start+111, 8, buffer);
 
-	printf(" lat %.6f lon %.6f wind_speed %dkt wind_gust %dkt wind_dir %d wind_gust_dir %d air_temp %.1fC rel_humid %d%% dew_point %.1fC pressure %d pressure_tend %d visib %.1fNM water_level %.1fm wave_height %.1fm water_temp %.1fC\n",
-		(float)latitude / 60000.0f, (float)longitude / 60000.0f, wind_speed, wind_gust, wind_dir, wind_gust_dir,
-		(float)air_temp * 0.1f - 60.0f, rel_humid, (float)dew_point * 0.1f - 20.0f, air_press, air_press_tend,
-		(float)horiz_visib_nm * 0.1f, (float)water_level * 0.1f - 10.0, (float)wave_height_significant * 0.1f, (float)water_temp * 0.1f - 10.0);
+	printf(" lat %.6f lon %.6f wind_speed %dkt wind_gust %dkt wind_dir %d wind_gust_dir %d"
+           "air_temp %.1fC rel_humid %d%% dew_point %.1fC pressure %d pressure_tend %d visib %dNM\n",
+		   (float)latitude / 60000.0f, (float)longitude / 60000.0f, wind_speed, wind_gust, wind_dir, wind_gust_dir,
+		   (float)air_temp * 0.1f - 60.0f, rel_humid, (float)dew_point * 0.1f - 20.0f, air_press, air_press_tend, horiz_visib_nm);
+
+	/* int water_level = protodec_henten(msg_start += 8, 9, buffer);
+	 * int water_trend = protodec_henten(msg_start += 9, 2, buffer);
+	 * int surface_current_speed = protodec_henten(msg_start += 2, 8, buffer);
+	 * int surface_current_dir = protodec_henten(msg_start += 8, 9, buffer);
+	 * int d1_current_speed = protodec_henten(msg_start += 9, 8, buffer);
+	 * int d1_current_dir = protodec_henten(msg_start += 8, 9, buffer);
+	 * int d1_current_depth = protodec_henten(msg_start += 9, 5, buffer);
+	 * int d2_current_speed = protodec_henten(msg_start += 5, 8, buffer);
+	 * int d2_current_dir = protodec_henten(msg_start += 8, 9, buffer);
+	 * int d2_current_depth = protodec_henten(msg_start += 9, 5, buffer);
+	 * int wave_height_significant = protodec_henten(msg_start += 5, 8, buffer);
+	 * int wave_period = protodec_henten(msg_start += 8, 6, buffer);
+	 * int wave_dir = protodec_henten(msg_start += 6, 9, buffer);
+	 * int swell_height = protodec_henten(msg_start += 9, 8, buffer);
+	 * int swell_period = protodec_henten(msg_start += 8, 6, buffer);
+	 * int swell_dir = protodec_henten(msg_start += 6, 9, buffer);
+	 * int sea_state = protodec_henten(msg_start += 9, 4, buffer);
+	 * int water_temp = protodec_henten(msg_start += 4, 10, buffer);
+     * printf("water_level %.1fm wave_height %.1fm water_temp %.1fC\n",
+     *        (float)water_level * 0.1f - 10.0f, (float)wave_height_significant * 0.1f, (float)water_temp * 0.1f - 10.0f);
+     */
 }
 
-void protodec_msg_bin(unsigned char *buffer, unsigned int bufferlen, unsigned int appid_fi, int msg_start, time_t received_t, uint32_t mmsi)
+void protodec_msg_bin(unsigned char *buffer, unsigned int bufferlen,
+                      unsigned int appid_fi, int msg_start, time_t received_t,
+                      uint32_t mmsi)
 {
 	switch (appid_fi) {
 	case 11: // weather
 		protodec_msg_11(buffer, bufferlen, msg_start, received_t, mmsi);
 		break;
 	case 40: // number of persons on board
-		protodec_msg_40(buffer, bufferlen, msg_start, received_t, mmsi);
+		protodec_msg_40(buffer, bufferlen, msg_start);
 		break;
 	default:
 		break;
@@ -328,23 +310,6 @@ static inline float k_cosf(float x)
     return (1.0f+z*(C1+z*(C2+z*(C3+z*(C4+z*(C5+z*(C6+z*C7)))))));
 }
 
-
-static const float
-S1  = -1.66666666666666324348e-01, /* 0xBFC55555, 0x55555549 */
-S2  =  8.33333333332248946124e-03, /* 0x3F811111, 0x1110F8A6 */
-S3  = -1.98412698298579493134e-04, /* 0xBF2A01A0, 0x19C161D5 */
-S4  =  2.75573137070700676789e-06, /* 0x3EC71DE3, 0x57B1FE7D */
-S5  = -2.50507602534068634195e-08, /* 0xBE5AE5E6, 0x8A2B9CEB */
-S6  =  1.58969099521155010221e-10; /* 0x3DE5D93A, 0x5ACFD57C */
-
-// Differs from libc sinf on [0, pi/2] by at most 0.0000001192f
-// Differs from libc sinf on [0, pi] by at most 0.0000170176f
-static inline float k_sinf(float x)
-{
-    float z = x*x;
-    return x*(1.0f+z*(S1+z*(S2+z*(S3+z*(S4+z*(S5+z*S6))))));
-}
-
 float fast_cosf(float x) {
     float y = fabsf(x), z;
     uint32_t n = (uint32_t)(y*inv_pi);
@@ -352,40 +317,56 @@ float fast_cosf(float x) {
     return ((n&1) ? -z : z);
 }
 
-float fast_sinf(float x)
-{
-    float y = fabsf(x), z;
-    uint32_t n = (uint32_t)(y*inv_pi);
-    z = k_sinf(y - (float)M_PI*(float)n);
-    z = ((x < 0.0f) ? -z : z);
-    return ((n&1) ? -z : z);
+#if 0
+float fast_asinf(float x) {
+    float z;
+    if (x > 0.5f) {
+        float x2 = (1.0f - x);
+        z = 0.5f*((float)M_PI - (float)M_SQRT2*sqrtf(x2)*(1.0f + 0.25f*x2*(0.16666666666f + 0.0375f*x2)));
+    } else {
+        float x2 = x*x;
+        z = x*(1.0f + x2*(0.16666666666f + 0.075f*x2));
+    }
+    return z;
 }
+#endif
 
+float fast_asinf(float x) {
+    float z;
+    float x2 = x*x;
+    if (x > (float)M_SQRT1_2) {
+        x2 = (1.0f - x2);
+        z = 0.5f*(float)M_PI - sqrtf(x2)*(1.0f + x2*(0.16666666666f + 0.075f*x2));
+    } else {
+        z = x*(1.0f + x2*(0.16666666666f + 0.075f*x2));
+    }
+    return z;
+}
 
 float maidenhead_km_distance(float lat1, float lon1, float lat2, float lon2)
 {
-	float sindlat2 = fast_sinf((lat1 - lat2) * 0.5f);
-	float sindlon2 = fast_sinf((lon1 - lon2) * 0.5f);
-
+	float sindlat = (1.0f - fast_cosf(lat1 - lat2));
+	float sindlon = (1.0f - fast_cosf(lon1 - lon2));
 	float coslat1 = fast_cosf(lat1);
 	float coslat2 = fast_cosf(lat2);
-
-	float a = (sindlat2 * sindlat2 + coslat1 * coslat2 * sindlon2 * sindlon2);
-	float c = 2.0f * asinf(sqrtf(a));
-
-	return ((111.2f * 180.0f / M_PI) * c);
+	float a = (float)M_SQRT1_2*sqrtf(sindlat + sindlon * coslat1 * coslat2);
+	return (222.4f * fast_asinf(a));
 }
 
-static inline void update_range(struct demod_state_t *d, float lat, float lon)
+static inline void update_range(struct demod_state_t *d, uint32_t mmsi, float lat, float lon)
 {
+    float distance;
+
+    if (lat != lat) lat = 0.0f; // goddamn NaNs
+    if (lon != lon) lon = 0.0f; // goddamn NaNs
+
 	// ignore bad GPS fixes, sent commonly by some AIS stations
-	if (lat > 89.0f || lat < -89.0f || lon > 180.01f || lon < -180.01f)
+	if (fabsf(lat) > 89.0f || fabsf(lon) > 180.01f) {
+        printf("invalid/erroneous latitude/longitude for MMSI %u: lat: %.5f, lon: %.5f\n", mmsi, lat, lon);
 		return;
+    }
 
-	if (lat < 0.001f && lat > -0.001f && lon < 0.001f && lon > -0.001f)
-		return;
-
-	float distance = maidenhead_km_distance(mylat, mylng, lat2rad(lat), lat2rad(lon));
+	distance = RAD_2_DEG * maidenhead_km_distance(mylat, mylng, (lat * DEG_2_RAD), (lon * DEG_2_RAD));
 	if (distance > d->best_range) {
         printf("updating range: old: %.5f, new: %.5f\n", d->best_range, distance);
 		d->best_range = distance;
@@ -399,31 +380,29 @@ static inline void update_range(struct demod_state_t *d, float lat, float lon)
 void protodec_pos(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	int longitude, latitude;
+	float longit, latit;
 	unsigned short course, sog, heading;
 	char rateofturn, navstat;
 
 	longitude = protodec_henten(61, 28, d->rbuffer);
 	if (((longitude >> 27) & 1) == 1)
 		longitude |= 0xF0000000;
+	longit = ((float) longitude) * 0.0000005f;
 
-	latitude = protodec_henten(38 + 22 + 29, 27, d->rbuffer);
+	latitude = protodec_henten(61 + 28, 27, d->rbuffer);
 	if (((latitude >> 26) & 1) == 1)
 		latitude |= 0xf8000000;
+	latit = ((float) latitude) * 0.0000005f;
 
-	course = protodec_henten(38 + 22 + 28 + 28, 12, d->rbuffer);
+	course = protodec_henten(61+ 28 + 27, 12, d->rbuffer);
+	heading = protodec_henten(61 + 28 + 27 + 12, 9, d->rbuffer);
 	sog = protodec_henten(50, 10, d->rbuffer);
-	rateofturn = protodec_henten(38 + 2, 8, d->rbuffer);
 	navstat = protodec_henten(38, 2, d->rbuffer);
-	heading = protodec_henten(38 + 22 + 28 + 28 + 12, 9, d->rbuffer);
+	rateofturn = protodec_henten(38 + 2, 8, d->rbuffer);
 
 	printf(" lat %.6f lon %.6f course %.0f speed %.1f rateofturn %d navstat %d heading %d",
-		(float) latitude / 600000.0,
-		(float) longitude / 600000.0,
-		(float) course / 10.0, (float) sog / 10.0,
-		rateofturn, navstat, heading);
-
-	if (have_my_loc)
-		update_range(d, (float) latitude / 600000.0, (float) longitude / 600000.0);
+		   latit / 3.0f, longit / 3.0f, (float) course * 0.1f, (float) sog * 0.1f, rateofturn, navstat, heading);
+	update_range(d, mmsi, latit / 3.0f, longit / 3.0f);
 }
 
 void protodec_4(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
@@ -442,18 +421,16 @@ void protodec_4(struct demod_state_t *d, unsigned int bufferlen, time_t received
 	longitude = protodec_henten(79, 28, d->rbuffer);
 	if (((longitude >> 27) & 1) == 1)
 		longitude |= 0xF0000000;
-	longit = ((float) longitude) / 10000.0 / 60.0;
+	longit = ((float) longitude) * 0.0000005f;
 
 	latitude = protodec_henten(107, 27, d->rbuffer);
 	if (((latitude >> 26) & 1) == 1)
 		latitude |= 0xf8000000;
-	latit = ((float) latitude) / 10000.0 / 60.0;
+	latit = ((float) latitude) * 0.0000005f;
 
 	printf(" date %d-%d-%d time %02u:%02u:%02u lat %.6f lon %.6f",
-		   year, month, day, hour, minute, second, latit, longit);
-
-	if (have_my_loc)
-		update_range(d, (float) latitude / 600000.0, (float) longitude / 600000.0);
+		   year, month, day, hour, minute, second, latit / 3.0f, longit / 3.0f);
+	update_range(d, mmsi, latit / 3.0f, longit / 3.0f);
 }
 
 void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
@@ -469,7 +446,7 @@ void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received
 
 	/* get IMO number */
 	imo = protodec_henten(40, 30, d->rbuffer);
-	//printf("--- 5: mmsi %lu imo %lu\n", mmsi, imo);
+	printf("--- 5: mmsi %u imo %u\n", mmsi, imo);
 
 	/* get callsign */
 	for (k = 0; k < 6; k++) {
@@ -477,7 +454,6 @@ void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received
 		protodec_decode_sixbit_ascii(letter, callsign, k);
 		pos += 6;
 	}
-
 	callsign[6] = 0;
 	remove_trailing_spaces(callsign, 6);
 
@@ -530,7 +506,7 @@ void protodec_6(struct demod_state_t *d, unsigned int bufferlen, time_t received
 	int appid_fi = protodec_henten(82, 6, d->rbuffer);
 
 	printf(" dst_mmsi %09ld seq %d retransmitted %d appid %d app_dac %d app_fi %d",
-		dst_mmsi, sequence, retransmitted, appid, appid_dac, appid_fi);
+		   dst_mmsi, sequence, retransmitted, appid, appid_dac, appid_fi);
 
 	if (appid_dac == 1) {
 		printf("(%s)", appid_ifm(appid_fi));
@@ -545,15 +521,15 @@ void protodec_6(struct demod_state_t *d, unsigned int bufferlen, time_t received
 
 void protodec_7_13(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
-	uint64_t dst_mmsi;
-    unsigned int i, pos = 40;
-	int sequence;
+	uint32_t seq, dst_mmsi;
+    unsigned int i, pos = 72;
 
-	printf(" buflen %u pos+32 %u", bufferlen, pos + 32);
-	for (i = 0; i < 4 && pos + 32 <= bufferlen; pos += 32) {
-		dst_mmsi = protodec_henten(pos, 30, d->rbuffer);
-		sequence = protodec_henten(pos + 30, 2, d->rbuffer);
-		printf(" ack %u (to %09lu seq %u)", i+1, dst_mmsi, sequence);
+	printf(" buflen %u pos+32: 72", bufferlen);
+	for (i = 0; i < 4 && pos <= bufferlen; pos += 32) {
+		dst_mmsi = protodec_henten(pos, 32, d->rbuffer);
+        seq = (dst_mmsi & 0x03);
+        dst_mmsi >>= 3;
+		printf(" ack %u (to %08u seq %u)", i+1, dst_mmsi, seq);
 		i++;
 	}
 }
@@ -564,11 +540,10 @@ void protodec_7_13(struct demod_state_t *d, unsigned int bufferlen, time_t recei
 
 void protodec_8(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
-	int appid = protodec_henten(40, 16, d->rbuffer);
 	int appid_dac = protodec_henten(40, 10, d->rbuffer);
 	int appid_fi = protodec_henten(50, 6, d->rbuffer);
 
-	printf(" appid %d app_dac %d app_fi %d", appid, appid_dac, appid_fi);
+	printf(" appid_dac %d appid_fi %d", appid_dac, appid_fi);
 	if (appid_dac == 1) {
 		printf("(%s)", appid_ifm(appid_fi));
 		protodec_msg_bin(d->rbuffer, bufferlen, appid_fi, 56, received_t, mmsi);
@@ -578,30 +553,27 @@ void protodec_8(struct demod_state_t *d, unsigned int bufferlen, time_t received
 void protodec_18(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	int longitude, latitude;
+	float longit, latit;
 	unsigned short course, sog, heading;
-	char rateofturn, navstat;
 
 	longitude = protodec_henten(57, 28, d->rbuffer);
 	if (((longitude >> 27) & 1) == 1)
 		longitude |= 0xF0000000;
+	longit = ((float) longitude) * 0.0000005f;
 
 	latitude = protodec_henten(85, 27, d->rbuffer);
 	if (((latitude >> 26) & 1) == 1)
 		latitude |= 0xf8000000;
+	latit = ((float) latitude) * 0.0000005f;
 
 	course = protodec_henten(112, 12, d->rbuffer);
 	sog = protodec_henten(46, 10, d->rbuffer);
-
-	rateofturn = 0; //NOT in B
-	navstat = 15;   //NOT in B
-
 	heading = protodec_henten(124, 9, d->rbuffer);
-	printf(" lat %.6f lon %.6f course %.0f speed %.1f rateofturn %d navstat %d heading %d",
-		   (float) latitude / 600000.0f, (float) longitude / 600000.0f,
-           (float) course * 0.1f, (float) sog * 0.1f, rateofturn, navstat, heading);
 
-	if (have_my_loc)
-		update_range(d, (float) latitude / 600000.0, (float) longitude / 600000.0);
+	printf(" lat %.6f lon %.6f course %.0f speed %.1f heading %d",
+		   latit / 3.0f, longit / 3.0f, (float) course * 0.1f, (float) sog * 0.1f, heading);
+
+	update_range(d, mmsi, latit / 3.0, longit / 3.0);
 }
 
 void protodec_19(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
@@ -716,6 +688,12 @@ void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 	}
 }
 
+#ifdef DEBUG_NMEA
+#define NMEA_DBG(x) x
+#else
+#define NMEA_DBG(x)
+#endif
+
 void protodec_generate_nmea(struct demod_state_t *d, unsigned int bufferlen, unsigned int fillbits, time_t received_t)
 {
 	//6bits to nmea-ascii. One sentence len max 82char
@@ -827,7 +805,7 @@ void protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 	time_t received_t;
 	time(&received_t);
 
-	if (type < 1 || type > MAX_AIS_PACKET_TYPE /* 9 */)
+	if (type > MAX_AIS_PACKET_TYPE /* 9 */)
 		return;
 
 	DBG(printf("Bufferlen: %d,", bufferlen));
@@ -850,12 +828,6 @@ void protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 	d->seqnr++;
 	if (d->seqnr > 9)
 		d->seqnr = 0;
-
-	if (type < 1 || type > MAX_AIS_PACKET_TYPE)
-		return; // unsupported packet type
-
-	if (skip_type[type])
-		return; // ignored by configuration
 
 	printf("type %u mmsi %08u:", type, mmsi);
 
@@ -910,7 +882,7 @@ void protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 	printf(" (!%s)\n", d->nmea_buffer);
 }
 
-void protodec_decode(char *in, unsigned int count, struct demod_state_t *d)
+void protodec_decode(unsigned char *in, unsigned int count, struct demod_state_t *d)
 {
 	unsigned int i = 0, bufferlength, correct;
 
@@ -945,7 +917,7 @@ void protodec_decode(char *in, unsigned int count, struct demod_state_t *d)
 				d->bufferpos++;
 				d->ndata++;
 
-				if (d->bufferpos >= 449) {
+				if (d->bufferpos >= 961) {
 					protodec_reset(d);
 				}
 			}
@@ -1020,10 +992,10 @@ void protodec_decode(char *in, unsigned int count, struct demod_state_t *d)
 				DBG(printf("%d\n\nFrame received OK. %u bits\n", in[i], bufferlength));
 				correct = protodec_calculate_crc(bufferlength, d);
 				if (correct) {
-					printf("CRC Checksum correct!\n");
+					DBG(printf("CRC Checksum correct!\n"));
 					d->receivedframes++;
 				} else {
-					printf("CRC Checksum incorrect!!!\n");
+					DBG(printf("CRC Checksum incorrect!!!\n"));
 					d->lostframes++;
 				}
 				protodec_getdata(bufferlength, d);
@@ -1034,8 +1006,6 @@ void protodec_decode(char *in, unsigned int count, struct demod_state_t *d)
 			DBG(printf("_________________________________________________________\n\n"));
 			protodec_reset(d);
 			break;
-
-
 		}
 		d->last = in[i];
 		i++;
