@@ -184,8 +184,8 @@ static int r82xx_write(struct r82xx_priv *priv, uint8_t reg, const uint8_t *val,
 	shadow_store(priv, reg, val, len);
 
 	do {
-		if (len > priv->max_i2c_msg_len - 1)
-			size = priv->max_i2c_msg_len - 1;
+		if (len > 7)
+			size = 7;
 		else
 			size = len;
 
@@ -193,7 +193,7 @@ static int r82xx_write(struct r82xx_priv *priv, uint8_t reg, const uint8_t *val,
 		buf[0] = reg;
 		memcpy(&buf[1], &val[pos], size);
 
-		rc = rtlsdr_i2c_write_fn(priv->rtl_dev, priv->i2c_addr, buf, size + 1);
+		rc = rtlsdr_i2c_write_fn(priv->rtl_dev, R820T_I2C_ADDR, buf, size + 1);
 		if (rc != size + 1) {
 			rtlsdr_printf("r82xx_write: i2c wr failed=%d reg=%02x len=%d\n", rc, reg, size);
 			if (rc < 0)
@@ -250,7 +250,7 @@ static int r82xx_read_reg(struct r82xx_priv *priv, uint8_t reg, uint8_t *val)
 	int rc;
 	uint8_t buf[5];
 
-	rc = rtlsdr_i2c_read_fn(priv->rtl_dev, priv->i2c_addr, buf, 5);
+	rc = rtlsdr_i2c_read_fn(priv->rtl_dev, R820T_I2C_ADDR, buf, 5);
 	if (rc < 0) {
 		rtlsdr_printf("r82xx_read_reg: i2c rd failed=%d reg=%02x\n", rc, reg);
 		if (rc < 0)
