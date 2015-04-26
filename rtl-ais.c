@@ -8,6 +8,9 @@
 #include <sys/stat.h>
 #include <signal.h>
 #include "rtl-sdr.h"
+#define M_TWOPIf 6.2831853f
+static const float inv_pi  =  0.3183098733;  /* 0x3ea2f984 */
+static const float invpio2 =  6.3661980629e-01; /* 0x3f22f984 */
 
 typedef struct FFTComplex {
     float re, im;
@@ -66,8 +69,12 @@ struct ais_state
 	FFTComplex signal3[DEFAULT_BUF_LENGTH];
 	float demod2[DEFAULT_BUF_LENGTH];
 	float demod3[DEFAULT_BUF_LENGTH];
+	float freqdet[DEFAULT_BUF_LENGTH];
 	uint32_t freq;
 	ais_receiver_t rx1, rx2;
+
+    float d_alpha, d_beta;
+    float d_phase, d_freq;
 };
 
 static const float lpf72k[20] = {
@@ -225,6 +232,28 @@ float polar_disc_fast(FFTComplex a, FFTComplex b)
     return (z * 0.31831f);
 }
 
+void pll_frequency_det(struct ais_state *d, FFTComplex *input_items, unsigned int ninput_items, float *optr)
+{
+    float sample_phase, error;
+    unsigned int i = 0, n;
+
+    while(i < ninput_items) {
+        optr[i] = (d->d_freq * (float)M_1_PI);
+        sample_phase = fast_atanf(fabsf(input_items[i].im / input_items[i].re));
+		if (input_items[i].re < 0) sample_phase = (float)M_PI - sample_phase;
+        error = (sample_phase - d->d_phase);
+        n = (uint32_t)(error*inv_pi); n &= ~0x1;
+        error -= ((float)M_PI * (float)n);
+        d->d_freq += d->d_beta * error;
+        d->d_phase = d->d_phase + d->d_freq + d->d_alpha * error;
+        while(d->d_phase>M_TWOPIf)
+            d->d_phase -= M_TWOPIf;
+        while(d->d_phase<-M_TWOPIf)
+            d->d_phase += M_TWOPIf;
+        i++;
+    }
+}
+
 static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t signal_len)
 {
 	unsigned int i, N = 19;
@@ -237,6 +266,7 @@ static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t signal_le
 	if (!fm->fir_offset) {
 		fm->fir_offset = 19;
 	}
+	pll_frequency_det(fm, fm->fbuf + fm->fir_offset, signal_len - fm->fir_offset, fm->freqdet);
 
 	i = 0;
 	fm->signal_len = 0;
@@ -320,7 +350,7 @@ static void ais_protodec(ais_receiver_t *rx, float *buf, unsigned int len)
 	float out, maxval = 0.0f;
     unsigned int i;
 	int curr, bit;
-	char b;
+	unsigned char b;
 	float filtered[4096];
 
 	maxval = rrc_filter_run_buf(rx, buf, filtered, len);
@@ -385,9 +415,9 @@ int main(int argc, char **argv)
 #endif
 	struct ais_state fm;
 	int r, opt;
-	unsigned int dev_index = 0;
-	int gain = AUTO_GAIN; // tenths of a dB
-	unsigned int ppm_error = 0;
+	unsigned int ll, dev_index = 0;
+	unsigned int lna_gain = 12, mixer_gain = 12;
+	int ppm_error = 0;
 
 	init_ais_receiver(&fm.rx1);
 	init_ais_receiver(&fm.rx2);
@@ -405,6 +435,9 @@ int main(int argc, char **argv)
      */
 	fm.freq = 161975000;
 	fm.freq += (RTLSDR_SAMPLE_RATE >> 2);
+	fm.d_alpha = 0.04f;
+	fm.d_beta = 0.0001f;
+	fm.d_freq = 0.0f;
 
 	/*
      * We need at least 128kHz of spectrum. We also need the output rate
@@ -420,10 +453,10 @@ int main(int argc, char **argv)
 			dev_index = rtlsdr_search_for_device(optarg);
 			break;
 		case 'L':
-			gain = (int)(atof(optarg) * 2);
+			lna_gain = (int)(atof(optarg) * 2);
 			break;
 		case 'M':
-			gain = (int)(atof(optarg) * 2);
+			mixer_gain = (int)(atof(optarg) * 2);
 			break;
 		case 'p':
 			ppm_error = atoi(optarg);
@@ -481,13 +514,10 @@ int main(int argc, char **argv)
 	if (r != 0) {
 		rtlsdr_printf("WARNING: Failed to set gain mode to manual.\n");
 	} else {
-		r  = rtlsdr_set_tuner_lna_gain(dev, lna_gain);
-		r |= rtlsdr_set_tuner_mixer_gain(dev, mixer_gain);
-		if (r != 0) {
-			rtlsdr_printf("WARNING: Failed to set tuner gain.\n");
-		} else {
-			rtlsdr_printf("Tuner gain set to %0.2f dB.\n", gain/10.0);
-		}
+		lna_gain  = rtlsdr_set_tuner_lna_gain(dev, lna_gain);
+		mixer_gain = rtlsdr_set_tuner_mixer_gain(dev, mixer_gain);
+		rtlsdr_printf("Tuner gain set to (LNA: %0.2f dB, Mixer: %.5fdB)\n",
+                      lna_gain * 0.1, mixer_gain * 0.1);
 	}
 
 	/* Reset endpoint before we start reading from it (mandatory) */
@@ -495,8 +525,8 @@ int main(int argc, char **argv)
 
 	while (!do_exit) {
 		unsigned int n_read;
-		int r = rtlsdr_read_sync(dev, buffer, DEFAULT_BUF_LENGTH, &n_read);
-		if (r < 0) {
+		int r2 = rtlsdr_read_sync(dev, buffer, DEFAULT_BUF_LENGTH, &n_read);
+		if (r2 < 0) {
 			rtlsdr_printf("WARNING: sync read failed.\n");
 			break;
 		}
@@ -510,6 +540,16 @@ int main(int argc, char **argv)
 		/* AIS protocol decode */
 		ais_protodec(&fm.rx1, fm.demod2, fm.signal_len);
 		ais_protodec(&fm.rx2, fm.demod3, fm.signal_len);
+
+		/* Dump phase offset/delay from MSK decoder, and frequency offset from the I/Q PLL here
+         * and cross-reference/compare.
+         */
+		for (ll = 0; ll < (n_read >> 3); ll++) {
+			char buf2[1024];
+			int len2 = snprintf(buf2, 1023, "%.10f %.10f %.10f %.10f\n",
+								fm.freqdet[4*ll], fm.freqdet[4*ll+1], fm.freqdet[4*ll+2], fm.freqdet[4*ll+3]);
+			write(1, buf2, len2);
+		}
 	}
 
 	rtlsdr_printf("\nUser cancel, exiting...\n");
