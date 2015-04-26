@@ -780,6 +780,93 @@ int rtlsdr_get_xtal_freq(rtlsdr_dev_t *dev, uint32_t *rtl_freq, uint32_t *tuner_
 	return 0;
 }
 
+static inline unsigned int rtl_ucs2_to_utf8(char *utf8, uint16_t ucs2)
+{
+  if (ucs2 <= 0x7f) {
+    utf8[0] = ucs2;
+    return 1;
+  }
+  else if (ucs2 <= 0x7ff) {
+    utf8[0] = 0xc0 | ((ucs2 >>  6) & 0x1f);
+    utf8[1] = 0x80 | ((ucs2 >>  0) & 0x3f);
+    return 2;
+  }
+  else {
+    utf8[0] = 0xe0 | ((ucs2 >> 12) & 0x0f);
+    utf8[1] = 0x80 | ((ucs2 >>  6) & 0x3f);
+    utf8[2] = 0x80 | ((ucs2 >>  0) & 0x3f);
+    return 3;
+  }
+}
+
+static int rtlsdr_get_string_descriptor_utf8(libusb_device_handle *dev, uint8_t desc_index,
+                                             unsigned char *data, unsigned int length)
+{
+    unsigned char tbuf[257]; /* Some devices choke on size > 255 */
+    uint16_t *ucs2buf = (uint16_t*)tbuf;
+    unsigned int di, si;
+    int r;
+    uint16_t langid;
+
+    /* Asking for the zero'th index is special - it returns a string
+     * descriptor that contains all the language IDs supported by the
+     * device. Typically there aren't many - often only one. Language
+     * IDs are 16 bit numbers, and they start at the third byte in the
+     * descriptor. There's also no point in trying to read descriptor 0
+     * with this function. See USB 2.0 specification section 9.6.7 for
+     * more information.
+     */
+
+    if (desc_index == 0)
+        return LIBUSB_ERROR_INVALID_PARAM;
+
+    r = libusb_get_string_descriptor(dev, 0, 0, tbuf, 255);
+    if (r < 0)
+        return r;
+
+    if (r < 4)
+        return LIBUSB_ERROR_IO;
+
+    langid = tbuf[2] | (tbuf[3] << 8);
+    r = libusb_get_string_descriptor(dev, desc_index, langid, tbuf, 255);
+    if (r < 0)
+        return r;
+
+    if ((tbuf[1] != LIBUSB_DT_STRING) || (tbuf[0] > r))
+        return LIBUSB_ERROR_IO;
+
+    for (di = 0, si = 1; 2*si < tbuf[0]; si++) {
+        if (di >= (length - 1))
+            break;
+        di += rtl_ucs2_to_utf8(data+di, ucs2buf[si]);
+    }
+
+    data[di] = 0;
+    return di;
+}
+
+int rtlsdr_get_usb_strings(rtlsdr_dev_t *dev, char *serial)
+{
+    struct libusb_device_descriptor dd;
+    libusb_device *device = NULL;
+    int r = 0;
+
+    if (!dev->devh)
+        return -1;
+
+    device = libusb_get_device(dev->devh);
+    r = libusb_get_device_descriptor(device, &dd);
+    if (r < 0)
+        return -1;
+
+    if (serial) {
+        memset(serial, 0, 256);
+        rtlsdr_get_string_descriptor_utf8(dev->devh, dd.iSerialNumber, (unsigned char *)serial, 255);
+    }
+
+    return 0;
+}
+
 int rtlsdr_write_eeprom(rtlsdr_dev_t *dev, uint8_t *data, uint8_t offset, uint16_t len)
 {
 	int r = 0;
@@ -884,6 +971,48 @@ uint32_t rtlsdr_get_center_freq(rtlsdr_dev_t *dev)
         return 0;
 
     return dev->freq;
+}
+
+int rtlsdr_set_tuner_lna_gain(rtlsdr_dev_t *dev, unsigned int gain)
+{
+	int r = 0;
+    unsigned int lna_gain = 0;
+
+    if (gain > 15) gain = 15;
+
+	if (dev->tuner_type == RTLSDR_TUNER_E4000) {
+        lna_gain = e4k_lna_mixer_gains[2*gain];
+    } else {
+        lna_gain = r82xx_lna_mixer_gains[2*gain];
+    }
+
+	if (dev->tuner->set_lna_gain) {
+		rtlsdr_set_i2c_repeater(dev, 1);
+		r = dev->tuner->set_lna_gain((void *)dev, lna_gain);
+		rtlsdr_set_i2c_repeater(dev, 0);
+	}
+	return lna_gain;
+}
+
+int rtlsdr_set_tuner_mixer_gain(rtlsdr_dev_t *dev, unsigned int gain)
+{
+	int r = 0;
+    unsigned int mixer_gain = 0;
+
+    if (gain > 15) gain = 15;
+
+	if (dev->tuner_type == RTLSDR_TUNER_E4000) {
+        mixer_gain = e4k_lna_mixer_gains[2*gain+1];
+    } else {
+        mixer_gain = r82xx_lna_mixer_gains[2*gain+1];
+    }
+
+	if (dev->tuner->set_lna_gain) {
+		rtlsdr_set_i2c_repeater(dev, 1);
+		r = dev->tuner->set_mixer_gain((void *)dev, mixer_gain);
+		rtlsdr_set_i2c_repeater(dev, 0);
+	}
+	return mixer_gain;
 }
 
 int rtlsdr_set_freq_correction(rtlsdr_dev_t *dev, int ppm)
@@ -1167,8 +1296,8 @@ int rtlsdr_get_device_usb_strings(uint32_t index, const char **product, char *se
 			if (index == device_count - 1) {
 				r = libusb_open(list[i], &devt.devh);
 				if (!r) {
-	                libusb_device *device = libusb_get_device(devt.devh);
-	                r = libusb_get_device_descriptor(device, &dd);
+	                libusb_device *d = libusb_get_device(devt.devh);
+	                r = libusb_get_device_descriptor(d, &dd);
 	                if (r < 0)
 		                return -1;
                     serial[0] = '\0';

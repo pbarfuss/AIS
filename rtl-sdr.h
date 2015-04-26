@@ -129,7 +129,7 @@ RTLSDR_API int rtlsdr_get_xtal_freq(rtlsdr_dev_t *dev, uint32_t *rtl_freq,
  * \param serial serial number, may be NULL
  * \return 0 on success
  */
-RTLSDR_API int rtlsdr_get_usb_strings(rtlsdr_dev_t *dev, char *product, char *serial);
+RTLSDR_API int rtlsdr_get_usb_strings(rtlsdr_dev_t *dev, char *serial);
 
 /*!
  * Write the device EEPROM
@@ -264,6 +264,8 @@ RTLSDR_API int rtlsdr_set_tuner_gain(rtlsdr_dev_t *dev, unsigned int gain);
  * \return 0 on error, gain in tenths of a dB, 115 means 11.5 dB.
  */
 RTLSDR_API int rtlsdr_get_tuner_gain(rtlsdr_dev_t *dev);
+RTLSDR_API int rtlsdr_set_tuner_lna_gain(rtlsdr_dev_t *dev, unsigned int gain);
+RTLSDR_API int rtlsdr_set_tuner_mixer_gain(rtlsdr_dev_t *dev, unsigned int gain);
 
 /*!
  * Set the gain mode (automatic/manual) for the device.
