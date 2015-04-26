@@ -162,7 +162,11 @@ void initMsk(msk_t *ch, unsigned int samplerate)
     ch->MskKa=PLLKa/(float)samplerate;
     ch->MskDf=ch->Mska=0;
 
+#ifdef __arm__
+    ch->flen=(unsigned int)(samplerate/4800.0f);
+#else
     ch->flen=lrintf(samplerate/4800.0f);
+#endif
     ch->idx=0;
 
     ch->outbits = 0;
