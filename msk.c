@@ -1,8 +1,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 #include <stdio.h>
+#include <math.h>
+#include <unistd.h>
+#include "rtl-ais.h"
 #define TWOPIf 6.2831853f
 float fast_atanf(float x);
 
@@ -120,38 +122,11 @@ void hpf(float *out, float *in, float *mem, unsigned int n, float pole_coeffs[2]
 }
 */
 
-typedef struct _dpll_t {
-      float d_alpha, d_beta;
-      float d_phase, d_freq;
-} dpll_t;
-
-typedef struct _msk_t
-{
-    float MskPhi;
-    float MskFreq,MskDf;
-    float Mska,MskKa;
-    float MskClk;
-    unsigned int MskS;
-
-    float Mskdc, Mskdcf;
-
-    unsigned int flen, idx;
-    float I[127];
-    float Q[127];
-    float h[127];
-
-    float hpf_mem[2];
-    unsigned int outbits, nbits;
-
-    unsigned char *bytearray;
-    unsigned int nalloc, nbytes;
-} msk_t;
-
 #define PLLKa 1.8991680918e+02f
 #define PLLKb 9.8503292076e-01f
 #define PLLKc 0.9995f
 
-void initMsk(msk_t *ch, unsigned int samplerate)
+void init_msk_demod(msk_t *ch, unsigned int samplerate)
 {
     unsigned int i;
 
@@ -190,69 +165,76 @@ void putbit(msk_t *ch, float v)
     }
 }
 
-void demodMsk(msk_t *ch, float input)
+void demod_msk(msk_t *ch, float *input, unsigned int ninput)
 {
-    int idx,j;
-
     float iv,qv,s,bit,tmp;
     float dphi;
     float p,sp,cp;
+    int i, j, idx;
 
-    /* oscilator */
-    p=ch->MskFreq+ch->MskDf;
-    ch->MskClk+=p;
-    p=ch->MskPhi+p;
-    if(p>=2.0f*(float)M_PI){
-        p-=2.0f*(float)M_PI;
-    }
-    ch->MskPhi=p;
+    for (i = 0; i < ninput; i++) {
+        p=ch->MskFreq+ch->MskDf;
+        ch->MskClk+=p;
 
-    idx=ch->idx;
+        /* Wrap phase mod 2PI */
+        p=ch->MskPhi+p;
+        if(p>=2.0f*(float)M_PI){
+            p-=2.0f*(float)M_PI;
+        }
+        ch->MskPhi=p;
 
-    if(ch->MskClk>3.0f*(float)M_PI/2.0f) {
-        ch->MskClk-=3.0f*(float)M_PI/2.0f;
+        if(ch->MskClk>3.0f*(float)M_PI/2.0f) {
+            ch->MskClk-=3.0f*(float)M_PI/2.0f;
+            idx=ch->idx;
 
-        /* matched filter */
-        for(j=0,iv=qv=0;j<39;j++) {
-            int k=(idx+1+j)%ch->flen;
-            iv+=ch->h[j]*ch->I[k];
-            qv+=ch->h[j]*ch->Q[k];
+            /* matched filter */
+            for(j=0,iv=qv=0;j<39;j++) {
+                int k=(idx+1+j)%ch->flen;
+                iv+=ch->h[j]*ch->I[k];
+                qv+=ch->h[j]*ch->Q[k];
+            }
+
+            if((ch->MskS&1)==0) {
+                if(iv>=0)
+                    dphi=fast_atan2f(-qv,iv);
+                else
+                    dphi=fast_atan2f(qv,-iv);
+                bit=-iv;
+            } else {
+                if(qv>=0)
+                    dphi=fast_atan2f(iv,qv);
+                else
+                    dphi=fast_atan2f(-iv,-qv);
+                bit=qv;
+            }
+            if (ch->MskS&2) bit = -bit;
+            putbit(ch, bit);
+            ch->MskS=(ch->MskS+1)&3;
+
+            {
+                char buf2[1024];
+                int len2 = snprintf(buf2, 1023, "MSK: Freq: %.10f, Phase: %5f, Phase Increment: %.5f, qv: %.5f, iv: %.5f, bit: %c\n",
+                                    ch->MskClk, ch->MskPhi, ch->MskDf, qv, iv, ((bit > 0) ? 0x31 : 0x30));
+                write(1, buf2, len2);
+            }
+
+            /* PLL */
+            dphi*=ch->MskKa;
+            ch->MskDf=PLLKc*ch->MskDf+dphi-PLLKb*ch->Mska;
+            ch->Mska=dphi;
         }
 
-        if((ch->MskS&1)==0) {
-            if(iv>=0)
-                dphi=fast_atan2f(-qv,iv);
-            else
-                dphi=fast_atan2f(qv,-iv);
-            bit=-iv;
-        } else {
-            if(qv>=0)
-                dphi=fast_atan2f(iv,qv);
-            else
-                dphi=fast_atan2f(-iv,-qv);
-            bit=qv;
-        }
-        if (ch->MskS&2) bit = -bit;
-        //fprintf(stderr, "qv: %.5f, iv: %.5f, bit: %c\n", qv, iv, ((bit > 0) ? 0x31 : 0x30));
-        putbit(ch, bit);
-        ch->MskS=(ch->MskS+1)&3;
+        /* DC blocking */
+        tmp = 0.989501953f * input[i] - (-1.978881836f * ch->hpf_mem[0] + 0.979125977f * ch->hpf_mem[1]);
+        s = tmp - 2.0f*ch->hpf_mem[0] + ch->hpf_mem[1];
+        ch->hpf_mem[1] = ch->hpf_mem[0];
+        ch->hpf_mem[0] = tmp;
 
-        /* PLL */
-        dphi*=ch->MskKa;
-        ch->MskDf=PLLKc*ch->MskDf+dphi-PLLKb*ch->Mska;
-        ch->Mska=dphi;
+        /* FI */
+        fast_sincosf(p,&sp,&cp);
+        ch->I[ch->idx]=s*cp;
+        ch->Q[ch->idx]=s*sp;
+        ch->idx=(ch->idx+1)%ch->flen;
     }
-
-    /* DC blocking */
-    tmp = 0.989501953f * input - (-1.978881836f * ch->hpf_mem[0] + 0.979125977f * ch->hpf_mem[1]);
-    s = tmp - 2.0f*ch->hpf_mem[0] + ch->hpf_mem[1];
-    ch->hpf_mem[1] = ch->hpf_mem[0];
-    ch->hpf_mem[0] = tmp;
-
-    /* FI */
-    fast_sincosf(p,&sp,&cp);
-    ch->I[idx]=s*cp;
-    ch->Q[idx]=s*sp;
-    ch->idx=(idx+1)%40;
 }
 

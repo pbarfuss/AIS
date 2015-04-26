@@ -12,24 +12,13 @@
 static const float inv_pi  =  0.3183098733;  /* 0x3ea2f984 */
 static const float invpio2 =  6.3661980629e-01; /* 0x3f22f984 */
 
-typedef struct FFTComplex {
-    float re, im;
-} FFTComplex;
-#define FFTCOMPLEX_T_DEFINED
-
+#include "rtl-ais.h"
 #include "protodec.h"
 #include "filtertables.h"
 #include "fast_atanf.h"
-#define WINDOW_TYPE 9
-#define ALPHA_I0INV_FRAC 0.9363670349f /* fractional part of 1.0 / I0(WINDOW_TYPE * WINDOW_TYPE) */
 #define RTLSDR_SAMPLE_RATE 288000
 #define DOWNSAMPLE_FILTER_LENGTH 128
-#define RRC_BUFLEN 1024
-#define RRC_COEFFS_L 81
-#define INVGAIN 0.7f
 #define	INC	16
-#define FFMAX(a,b) ((a) > (b) ? (a) : (b))
-#define FFMIN(a,b) ((a) > (b) ? (b) : (a))
 
 FFTComplex scalarproduct_iq_c(FFTComplex *v1, float *v2, unsigned int len);
 FFTComplex scalarproduct_iq_sse(FFTComplex *v1, float *v2, unsigned int len);
@@ -41,41 +30,10 @@ FFTComplex scalarproduct_iq_neon(FFTComplex *v1, float *v2, unsigned int len);
 #endif
 
 #define DEFAULT_BUF_LENGTH		16384
-#define AUTO_GAIN			-100
 
 static volatile int do_exit = 0;
 static rtlsdr_dev_t *dev = NULL;
 static uint8_t buffer[DEFAULT_BUF_LENGTH]; /* We need this to be a multiple of 16K, as that's the USB URB size */
-
-typedef struct _ais_receiver_t {
-    float rrc_filter_buffer[RRC_BUFLEN];
-    unsigned int rrc_filter_bufidx;
-	int lastbit;
-	unsigned int pll;
-	unsigned int pllinc;
-	struct demod_state_t decoder;
-	int prev;
-	time_t last_levellog;
-} ais_receiver_t;
-
-struct ais_state
-{
-	FFTComplex prev1, prev2;
-	uint32_t fir_offset;
-	FFTComplex *fbuf;
-	FFTComplex signal[DEFAULT_BUF_LENGTH];  /* float i/q pairs */
-	unsigned int signal_len;
-	FFTComplex signal2[DEFAULT_BUF_LENGTH];
-	FFTComplex signal3[DEFAULT_BUF_LENGTH];
-	float demod2[DEFAULT_BUF_LENGTH];
-	float demod3[DEFAULT_BUF_LENGTH];
-	float freqdet[DEFAULT_BUF_LENGTH];
-	uint32_t freq;
-	ais_receiver_t rx1, rx2;
-
-    float d_alpha, d_beta;
-    float d_phase, d_freq;
-};
 
 static const float lpf72k[20] = {
   -0.021042, -0.113812,  0.017416, 0.049604,
@@ -272,7 +230,7 @@ static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t signal_le
 	fm->signal_len = 0;
     while (i < signal_len) {
         fm->signal[fm->signal_len++] = scalarproduct_iq_c(&fm->fbuf[i], lpf72k, 20);
-        i += 8; /* 8->1 downsample */
+        i += 4; /* 4->1 downsample */
     }
     for(i=0; i<N; i++) {
         fm->fbuf[i] = fm->fbuf[i+signal_len];
@@ -422,6 +380,9 @@ int main(int argc, char **argv)
 	init_ais_receiver(&fm.rx1);
 	init_ais_receiver(&fm.rx2);
 
+	init_msk_demod(&fm.sd1, 288000/4);
+	init_msk_demod(&fm.sd2, 48000);
+
 	/*
 	 * AIS is VHF marine 87B and 88B. We want to catch both.
 	 * This mandates the following:
@@ -540,6 +501,9 @@ int main(int argc, char **argv)
 		/* AIS protocol decode */
 		ais_protodec(&fm.rx1, fm.demod2, fm.signal_len);
 		ais_protodec(&fm.rx2, fm.demod3, fm.signal_len);
+
+		demod_msk(&fm.sd1, fm.demod2, fm.signal_len);
+		demod_msk(&fm.sd2, fm.demod3, fm.signal_len);
 
 		/* Dump phase offset/delay from MSK decoder, and frequency offset from the I/Q PLL here
          * and cross-reference/compare.
