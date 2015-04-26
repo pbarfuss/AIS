@@ -22,7 +22,7 @@ typedef struct FFTComplex {
 #include "fast_atanf.h"
 #define WINDOW_TYPE 9
 #define ALPHA_I0INV_FRAC 0.9363670349f /* fractional part of 1.0 / I0(WINDOW_TYPE * WINDOW_TYPE) */
-#define RTLSDR_SAMPLE_RATE 96000
+#define RTLSDR_SAMPLE_RATE 288000
 #define DOWNSAMPLE_FILTER_LENGTH 128
 #define RRC_BUFLEN 1024
 #define RRC_COEFFS_L 81
