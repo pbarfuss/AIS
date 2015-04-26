@@ -67,8 +67,15 @@ struct ais_state
 	float demod2[DEFAULT_BUF_LENGTH];
 	float demod3[DEFAULT_BUF_LENGTH];
 	uint32_t freq;
-	uint32_t output_rate;
 	ais_receiver_t rx1, rx2;
+};
+
+static const float lpf72k[20] = {
+  -0.021042, -0.113812,  0.017416, 0.049604,
+   0.024603, -0.064167, -0.080361, 0.072182,
+   0.309384,  0.425102,  0.309384, 0.072182
+  -0.080361, -0.064167,  0.024603, 0.049604,
+   0.017416, -0.113812, -0.021042, 0.0
 };
 
 /**
@@ -220,7 +227,7 @@ float polar_disc_fast(FFTComplex a, FFTComplex b)
 
 static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t signal_len)
 {
-	unsigned int i, N = DOWNSAMPLE_FILTER_LENGTH;
+	unsigned int i, N = 19;
 
 	for (i = 0; i < signal_len; i++) {
 		fm->fbuf[i + fm->fir_offset].re = ((float)buffer[2*i] - 127.5f);
@@ -228,13 +235,13 @@ static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t signal_le
 	}
 
 	if (!fm->fir_offset) {
-		fm->fir_offset = DOWNSAMPLE_FILTER_LENGTH;
+		fm->fir_offset = 19;
 	}
 
 	i = 0;
 	fm->signal_len = 0;
     while (i < signal_len) {
-        fm->signal[fm->signal_len++] = scalarproduct_iq_c(&fm->fbuf[i], downsample81_filterbank, N);
+        fm->signal[fm->signal_len++] = scalarproduct_iq_c(&fm->fbuf[i], lpf72k, 20);
         i += 8; /* 8->1 downsample */
     }
     for(i=0; i<N; i++) {
@@ -378,7 +385,7 @@ int main(int argc, char **argv)
 #endif
 	struct ais_state fm;
 	int r, opt;
-	int dev_index = 0, dev_given = 0;
+	unsigned int dev_index = 0;
 	int gain = AUTO_GAIN; // tenths of a dB
 	unsigned int ppm_error = 0;
 
@@ -405,17 +412,18 @@ int main(int argc, char **argv)
      * and an integer multiple of the symbol rate (which is 9600symbols/sec)
      * This gives us 264kHz and a downsampling ratio of 1/4
      */
-	fm.output_rate = 192000;
 	fm.fir_offset = 0;
 
-	while ((opt = getopt(argc, argv, "d:g:o:t:r:p:wEA:DNWMULS:CF:h")) != -1) {
+	while ((opt = getopt(argc, argv, "d:L:M:p:h")) != -1) {
 		switch (opt) {
 		case 'd':
 			dev_index = rtlsdr_search_for_device(optarg);
-			dev_given = 1;
 			break;
-		case 'g':
-			gain = (int)(atof(optarg) * 10);
+		case 'L':
+			gain = (int)(atof(optarg) * 2);
+			break;
+		case 'M':
+			gain = (int)(atof(optarg) * 2);
 			break;
 		case 'p':
 			ppm_error = atoi(optarg);
@@ -428,14 +436,6 @@ int main(int argc, char **argv)
 	}
 
 	fm.fbuf = malloc(2* (DOWNSAMPLE_FILTER_LENGTH + DEFAULT_BUF_LENGTH + 1) * sizeof(float));
-	if (!dev_given) {
-		dev_index = rtlsdr_search_for_device("0");
-	}
-
-	if (dev_index < 0) {
-		exit(1);
-	}
-
 	r = rtlsdr_open(&dev, dev_index);
 	if (r < 0) {
 		rtlsdr_printf("Failed to open rtlsdr device #%d.\n", dev_index);
@@ -458,6 +458,15 @@ int main(int argc, char **argv)
 	/* Disable PLL dithering, needed to get reasonable fingerprinting IDs. */
 	rtlsdr_set_dithering(dev, 0);
 
+	/* Set the sample rate */
+	rtlsdr_printf("Sampling at %u Hz.\n", RTLSDR_SAMPLE_RATE);
+	rtlsdr_printf("Buffer size: %0.2fms\n", 0.5f * (float)DEFAULT_BUF_LENGTH / 1536.0f);
+	r = rtlsdr_set_sample_rate(dev, RTLSDR_SAMPLE_RATE);
+	if (r < 0) {
+		rtlsdr_printf("WARNING: Failed to set sample rate.\n");
+	}
+	r = rtlsdr_set_freq_correction(dev, ppm_error);
+
 	/* Set the frequency */
 	r = rtlsdr_set_center_freq(dev, (uint32_t)fm.freq);
 	if (r < 0) {
@@ -466,36 +475,23 @@ int main(int argc, char **argv)
 		rtlsdr_printf("Tuned to %u Hz.\n", fm.freq);
 	}
 
-	/* Set the sample rate */
-	rtlsdr_printf("Sampling at %u Hz.\n", RTLSDR_SAMPLE_RATE);
-	rtlsdr_printf("Output at %u Hz.\n", fm.output_rate);
-	rtlsdr_printf("Buffer size: %0.2fms\n", 0.5f * (float)DEFAULT_BUF_LENGTH / 1536.0f);
-	r = rtlsdr_set_sample_rate(dev, RTLSDR_SAMPLE_RATE);
-	if (r < 0) {
-		rtlsdr_printf("WARNING: Failed to set sample rate.\n");
-	}
-
 	/* Set the tuner gain */
-	if (gain == AUTO_GAIN) {
-		r = rtlsdr_set_tuner_gain_mode(dev, 0);
-	} else {
-		r = rtlsdr_set_tuner_gain_mode(dev, 1);
-		r = rtlsdr_set_tuner_gain(dev, gain);
-	}
-
+	//r = rtlsdr_set_tuner_gain_mode(dev, 0);
+	r = rtlsdr_set_tuner_gain_mode(dev, 1);
 	if (r != 0) {
-		rtlsdr_printf("WARNING: Failed to set tuner gain.\n");
-	} else if (gain == AUTO_GAIN) {
-		rtlsdr_printf("Tuner gain set to automatic.\n");
+		rtlsdr_printf("WARNING: Failed to set gain mode to manual.\n");
 	} else {
-		rtlsdr_printf("Tuner gain set to %0.2f dB.\n", gain/10.0);
+		r  = rtlsdr_set_tuner_lna_gain(dev, lna_gain);
+		r |= rtlsdr_set_tuner_mixer_gain(dev, mixer_gain);
+		if (r != 0) {
+			rtlsdr_printf("WARNING: Failed to set tuner gain.\n");
+		} else {
+			rtlsdr_printf("Tuner gain set to %0.2f dB.\n", gain/10.0);
+		}
 	}
-	r = rtlsdr_set_freq_correction(dev, ppm_error);
 
 	/* Reset endpoint before we start reading from it (mandatory) */
-	r = rtlsdr_reset_buffer(dev);
-	if (r < 0) {
-		rtlsdr_printf("WARNING: Failed to reset buffers.\n");}
+	rtlsdr_reset_buffer(dev);
 
 	while (!do_exit) {
 		unsigned int n_read;
