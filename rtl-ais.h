@@ -30,46 +30,49 @@ typedef struct _msk_t
     float Q[127];
     float h[127];
 
-    float hpf_mem[2];
+    FFTComplex hpf_mem[2];
     unsigned int outbits, nbits;
-
-    unsigned char *bytearray;
-    unsigned int nalloc, nbytes;
 } msk_t;
 
-typedef struct _ais_receiver_t {
+typedef struct _asynchronous_msk_demod_t {
     float rrc_filter_buffer[RRC_BUFLEN];
     unsigned int rrc_filter_bufidx;
 	int lastbit;
 	unsigned int pll;
 	unsigned int pllinc;
-	struct demod_state_t decoder;
 	int prev;
 	time_t last_levellog;
-} ais_receiver_t;
+	float fm_demod[DEFAULT_BUF_LENGTH];
+	FFTComplex prev_fm;
+    unsigned int outbits, nbits;
+} asynchronous_msk_demod_t;
 
 struct ais_state
 {
-	FFTComplex prev1, prev2;
 	uint32_t fir_offset;
 	FFTComplex *fbuf;
 	FFTComplex signal[DEFAULT_BUF_LENGTH];  /* float i/q pairs */
 	unsigned int signal_len;
 	FFTComplex signal2[DEFAULT_BUF_LENGTH];
 	FFTComplex signal3[DEFAULT_BUF_LENGTH];
-	float demod2[DEFAULT_BUF_LENGTH];
-	float demod3[DEFAULT_BUF_LENGTH];
+    FFTComplex dc_hpf_mem[2];
 	float freqdet[DEFAULT_BUF_LENGTH];
 	uint32_t freq;
     msk_t sd1, sd2;
-	ais_receiver_t rx1, rx2;
+    unsigned char *bytearray;
+    unsigned int bytearray_nalloc, bytearray_nbytes;
+	//asynchronous_msk_demod_t rx1, rx2;
 
     float d_alpha, d_beta;
     float d_phase, d_freq;
+
+	struct demod_state_t decoder1;
+	struct demod_state_t decoder2;
 };
 
+void ais_bytearray_append(uint8_t v0);
 void init_msk_demod(msk_t *ch, unsigned int samplerate);
-void demod_msk(msk_t *ch, float *input, unsigned int ninput);
+void demod_msk(msk_t *ch, FFTComplex *input, unsigned int ninput);
 
 #endif
 

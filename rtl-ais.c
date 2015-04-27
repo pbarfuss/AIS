@@ -80,6 +80,21 @@ static void sighandler(int signum)
 }
 #endif
 
+static unsigned char *ais_bytearray;
+static unsigned int ais_nalloc, ais_nbytes;
+
+void ais_bytearray_append(uint8_t v0)
+{
+	//ch->bytearray[ch->nbytes++] = ch->outbits;
+	if (ais_nalloc < ais_nbytes) {
+		ais_bytearray = realloc(ais_bytearray, 2*ais_nalloc);
+		ais_nalloc += ais_nbytes;
+	}
+	ais_bytearray[ais_nbytes++] = v0;
+	/* AIS protocol decode */
+	//protodec_decode(&fm.protodec);
+}
+
 /* 90 rotation is 1+0j, 0+1j, -1+0j, 0-1j
    or [0, 1, -3, 2, -4, -5, 7, -6] */
 void hilbert(unsigned char *buf, uint32_t len)
@@ -212,19 +227,31 @@ void pll_frequency_det(struct ais_state *d, FFTComplex *input_items, unsigned in
     }
 }
 
+void hpf(FFTComplex *out, FFTComplex *in, FFTComplex *mem, unsigned int n)
+{
+    unsigned int i;
+    float tmp1, tmp2;
+
+    for (i = 0; i < n; i++) {
+        tmp1    = 0.989501953f * in[i].re - (-1.978881836f * mem[0].re + 0.979125977f * mem[1].re);
+        tmp2    = 0.989501953f * in[i].im - (-1.978881836f * mem[0].im + 0.979125977f * mem[1].im);
+        out[i].re = tmp1 - 2.0f*mem[0].re + mem[1].re;
+        out[i].im = tmp2 - 2.0f*mem[0].im + mem[1].im;
+        mem[1] = mem[0];
+        mem[0].re = tmp1;
+        mem[0].im = tmp2;
+    }
+}
+
 static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t signal_len)
 {
 	unsigned int i, N = 19;
 
 	for (i = 0; i < signal_len; i++) {
-		fm->fbuf[i + fm->fir_offset].re = ((float)buffer[2*i] - 127.5f);
-		fm->fbuf[i + fm->fir_offset].im = ((float)buffer[2*i+1] - 127.5f);
+		fm->fbuf[i + 19].re = ((float)buffer[2*i] - 127.5f);
+		fm->fbuf[i + 19].im = ((float)buffer[2*i+1] - 127.5f);
 	}
-
-	if (!fm->fir_offset) {
-		fm->fir_offset = 19;
-	}
-	pll_frequency_det(fm, fm->fbuf + fm->fir_offset, signal_len - fm->fir_offset, fm->freqdet);
+	pll_frequency_det(fm, fm->fbuf + 19, signal_len - 19, fm->freqdet);
 
 	i = 0;
 	fm->signal_len = 0;
@@ -235,6 +262,8 @@ static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t signal_le
     for(i=0; i<N; i++) {
         fm->fbuf[i] = fm->fbuf[i+signal_len];
     }
+	hpf(fm->signal, fm->signal, fm->dc_hpf_mem, fm->signal_len);
+	demod_msk(&fm->sd1, fm->signal, fm->signal_len);
 
 	/* Okay, so we have audio at 192kHz. AIS has channel widths of 12.5/25kHz, so we need at least
      * 96k samplerate for both. For now, just keep them at 264k.
@@ -248,95 +277,7 @@ static void full_demod(struct ais_state *fm, uint8_t *buffer, uint32_t signal_le
 		fm->signal3[i].re = fm->signal[i].re * ais_chan2_shift_to_baseband_table[i % 96].re;
 		fm->signal3[i].im = fm->signal[i].im * ais_chan2_shift_to_baseband_table[i % 96].im;
 	}
-
-    fm->demod2[0] = polar_disc_fast(fm->signal[0], fm->prev1);
-    for (i = 1; i < fm->signal_len; i++) {
-        fm->demod2[i] = polar_disc_fast(fm->signal[i], fm->signal[i-1]);
-    }
-    fm->prev1 = fm->signal[fm->signal_len - 1];
-
-    fm->demod3[0] = polar_disc_fast(fm->signal3[0], fm->prev2);
-    for (i = 1; i < fm->signal_len; i++) {
-        fm->demod3[i] = polar_disc_fast(fm->signal3[i], fm->signal3[i-1]);
-    }
-    fm->prev2 = fm->signal3[fm->signal_len - 1];
-}
-
-static float rrc_filter_run_buf(ais_receiver_t *f, float *in, float *out, unsigned int len)
-{
-    float maxval = 0.0f;
-    unsigned int id = 0, filtidx = f->rrc_filter_bufidx;
-
-	while (id < len) {
-	    f->rrc_filter_buffer[f->rrc_filter_bufidx] = in[id];
-
-		// look for peak volume
-		if (in[id] > maxval)
-			maxval = in[id];
-
-		out[id++] = INVGAIN*scalarproduct_float_c(&f->rrc_filter_buffer[filtidx - RRC_COEFFS_L], rcos_filter_coeffs, 84);
-
-		/* the buffer is much smaller than the incoming chunks */
-		if (filtidx == RRC_BUFLEN-1) {
-			memcpy(f->rrc_filter_buffer,
-			       f->rrc_filter_buffer + RRC_BUFLEN - RRC_COEFFS_L,
-			       RRC_COEFFS_L * sizeof(float));
-            filtidx = RRC_COEFFS_L - 1;
-		}
-        filtidx++;
-	}
-
-    f->rrc_filter_bufidx = filtidx;
-	return maxval;
-}
-
-static void init_ais_receiver(ais_receiver_t *rx)
-{
-	memset(rx, 0, sizeof(ais_receiver_t));
-
-	protodec_initialize(&rx->decoder, 1);
-	rx->rrc_filter_bufidx = RRC_COEFFS_L;
-	rx->lastbit = 0;
-	rx->pll = 0;
-	rx->pllinc = 0x10000 / 5;
-	rx->prev = 0;
-	rx->last_levellog = 0;
-}
-
-static void ais_protodec(ais_receiver_t *rx, float *buf, unsigned int len)
-{
-	float out, maxval = 0.0f;
-    unsigned int i;
-	int curr, bit;
-	unsigned char b;
-	float filtered[4096];
-
-	maxval = rrc_filter_run_buf(rx, buf, filtered, len);
-	for (i = 0; i < len; i++) {
-		out = filtered[i];
-		curr = (out > 0);
-
-		if ((curr ^ rx->prev) == 1) {
-			if (rx->pll < (0x10000 / 2)) {
-				rx->pll += rx->pllinc / INC;
-			} else {
-				rx->pll -= rx->pllinc / INC;
-			}
-		}
-		rx->prev = curr;
-		rx->pll += rx->pllinc;
-
-		if (rx->pll > 0xffff) {
-			/* slice */
-			bit = (out > 0);
-			/* nrzi decode */
-			b = !(bit ^ rx->lastbit);
-			/* feed to the decoder */
-			protodec_decode(&b, 1, &rx->decoder);
-			rx->lastbit = bit;
-			rx->pll &= 0xffff;
-		}
-	}
+	demod_msk(&fm->sd2, fm->signal3, fm->signal_len);
 }
 
 /* standard suffixes */
@@ -377,11 +318,15 @@ int main(int argc, char **argv)
 	unsigned int lna_gain = 12, mixer_gain = 12;
 	int ppm_error = 0;
 
-	init_ais_receiver(&fm.rx1);
-	init_ais_receiver(&fm.rx2);
+	ais_protodec_initialize(&fm.decoder1, 1);
+	ais_protodec_initialize(&fm.decoder2, 1);
 
 	init_msk_demod(&fm.sd1, 288000/4);
 	init_msk_demod(&fm.sd2, 48000);
+
+	ais_bytearray = malloc(4096);
+	ais_nalloc = 4096;
+	ais_nbytes = 0;
 
 	/*
 	 * AIS is VHF marine 87B and 88B. We want to catch both.
@@ -394,11 +339,11 @@ int main(int argc, char **argv)
      * we're given the lower edge, but actually want the center.
      * Add Fs/4 to deal with this.
      */
-	fm.freq = 161975000;
-	fm.freq += (RTLSDR_SAMPLE_RATE >> 2);
+	fm.freq = 162000000;
 	fm.d_alpha = 0.04f;
 	fm.d_beta = 0.0001f;
-	fm.d_freq = 0.0f;
+	//fm.d_freq = 0.0f;
+	fm.d_freq = ((float)M_PI / 4800.0f);
 
 	/*
      * We need at least 128kHz of spectrum. We also need the output rate
@@ -499,11 +444,7 @@ int main(int argc, char **argv)
 		full_demod(&fm, buffer, (n_read >> 1));
 
 		/* AIS protocol decode */
-		ais_protodec(&fm.rx1, fm.demod2, fm.signal_len);
-		ais_protodec(&fm.rx2, fm.demod3, fm.signal_len);
-
-		demod_msk(&fm.sd1, fm.demod2, fm.signal_len);
-		demod_msk(&fm.sd2, fm.demod3, fm.signal_len);
+		//protodec_decode(&fm.protodec);
 
 		/* Dump phase offset/delay from MSK decoder, and frequency offset from the I/Q PLL here
          * and cross-reference/compare.

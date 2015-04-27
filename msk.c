@@ -155,19 +155,26 @@ void init_msk_demod(msk_t *ch, unsigned int samplerate)
 
 void putbit(msk_t *ch, float v)
 {
-    ch->outbits>>=1;
+    unsigned char b = 0;
+    ch->outbits <<= 1;
     if(v>0) {
-        ch->outbits|=0x80;
+        ch->outbits |= 1;
+        b = 1;
     }
     if (ch->nbits >= 8) {
-        ch->bytearray[ch->nbytes++] = ch->outbits;
+        char out[5];
+	    /* feed to the decoder */
+        ais_bytearray_append(ch->outbits);
+        sprintf(out, "0x%02x, ", ch->outbits);
         ch->nbits = 0;
+        ch->outbits = 0;
+        write(1, out, 5);
     }
 }
 
-void demod_msk(msk_t *ch, float *input, unsigned int ninput)
+void demod_msk(msk_t *ch, FFTComplex *input, unsigned int ninput)
 {
-    float iv,qv,s,bit,tmp;
+    float iv,qv,c,s,bit,tmp;
     float dphi;
     float p,sp,cp;
     int i, j, idx;
@@ -211,29 +218,18 @@ void demod_msk(msk_t *ch, float *input, unsigned int ninput)
             putbit(ch, bit);
             ch->MskS=(ch->MskS+1)&3;
 
-            {
-                char buf2[1024];
-                int len2 = snprintf(buf2, 1023, "MSK: Freq: %.10f, Phase: %5f, Phase Increment: %.5f, qv: %.5f, iv: %.5f, bit: %c\n",
-                                    ch->MskClk, ch->MskPhi, ch->MskDf, qv, iv, ((bit > 0) ? 0x31 : 0x30));
-                write(1, buf2, len2);
-            }
-
             /* PLL */
             dphi*=ch->MskKa;
             ch->MskDf=PLLKc*ch->MskDf+dphi-PLLKb*ch->Mska;
             ch->Mska=dphi;
         }
 
-        /* DC blocking */
-        tmp = 0.989501953f * input[i] - (-1.978881836f * ch->hpf_mem[0] + 0.979125977f * ch->hpf_mem[1]);
-        s = tmp - 2.0f*ch->hpf_mem[0] + ch->hpf_mem[1];
-        ch->hpf_mem[1] = ch->hpf_mem[0];
-        ch->hpf_mem[0] = tmp;
+        /* DC blocking - now done in main decode f'n immediate defined above this one. */
 
         /* FI */
         fast_sincosf(p,&sp,&cp);
-        ch->I[ch->idx]=s*cp;
-        ch->Q[ch->idx]=s*sp;
+        ch->I[ch->idx]=input[i].re*cp;
+        ch->Q[ch->idx]=input[i].im*sp;
         ch->idx=(ch->idx+1)%ch->flen;
     }
 }

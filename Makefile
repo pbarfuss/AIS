@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS += -I. -I/usr/include/libusb-1.0/ -Wall -O2 -fno-math-errno -fno-trapping-math -fno-omit-frame-pointer -fno-asynchronous-unwind-tables 
+CFLAGS += -I. -I/usr/include/libusb-1.0/ -Wall -O2 -fno-math-errno -fno-trapping-math -fno-omit-frame-pointer -fno-asynchronous-unwind-tables -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 
 INCLUDES = -I. -I/usr/include/libusb-1.0/
 DEST_BASE=/usr
 DEST_INC=${DEST_BASE}/include
