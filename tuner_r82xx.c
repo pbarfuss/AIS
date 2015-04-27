@@ -517,9 +517,10 @@ int r82xx_set_dither(struct r82xx_priv *priv, int dither)
     return 0;
 }
 
-int r82xx_read_gain(struct r82xx_priv *priv, unsigned int *strength)
+int r82xx_read_gain(struct r82xx_priv *priv, unsigned int *gain0, unsigned int *gain1)
 {
     uint8_t reg3 = 0;
+    unsigned int strength = 0;
     int rc;
 
     rc = r82xx_read_reg(priv, 0x03, &reg3);
@@ -527,12 +528,14 @@ int r82xx_read_gain(struct r82xx_priv *priv, unsigned int *strength)
         return rc;
 
     rc = (((reg3 & 0xf0) << 1) + (reg3 & 0x0f));
+    if (gain0) *gain0 = (reg3 & 0xf0);
+    if (gain1) *gain1 = (reg3 & 0x0f);
 
     /* A higher gain at LNA means a lower signal strength */
-    *strength = (45 - rc) << 4 | 0xff;
-    if (*strength == 0xff)
-        *strength = 0;
-    return rc;
+    strength = (45 - rc) << 4 | 0xff;
+    if (strength == 0xff)
+        strength = 0;
+    return strength;
 }
 
 /* measured with a Racal 6103E GSM test set at 928 MHz with -60 dBm

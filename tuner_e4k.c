@@ -217,8 +217,7 @@ static const struct pll_settings pll_vars[] = {
 	{KHZ(108300),	(1 << 3) | 5,	32},
 	{KHZ(162500),	(1 << 3) | 4,	24},
 	{KHZ(216600),	(1 << 3) | 3,	16},
-	{KHZ(325000),	(1 << 3) | 2,	12},
-	{KHZ(350000),	(0 << 3) | 4,	12},
+	{KHZ(325000),	(0 << 3) | 4,	12},
 	{KHZ(432000),	(0 << 3) | 3,	 8},
 	{KHZ(667000),	(0 << 3) | 2,	 6},
 	{KHZ(1200000),	(0 << 3) | 1,	 4}
@@ -441,17 +440,14 @@ int e4k_enable_manual_gain(struct e4k_state *e4k, uint8_t manual)
 	return 0;
 }
 
-int e4k_read_gain(struct e4k_state *e4k, unsigned int *strength)
+int e4k_read_gain(struct e4k_state *e4k, unsigned int *gain0, unsigned int *gain1)
 {
-    int rssi = e4k_reg_read(e4k, E4K_REG_AGC3);
-    int lna_gain = e4k_reg_read(e4k, E4K_REG_AGC1);
-
-    *strength = 0;
-    if ((rssi < 0) || (lna_gain < 0))
-        return -1;
-
+    unsigned int rssi = e4k_reg_read(e4k, E4K_REG_AGC3);
+    unsigned int lna_gain = e4k_reg_read(e4k, E4K_REG_AGC1);
+    unsigned int mixer_gain = (e4k_reg_read(e4k, E4K_REG_AGC7) & 1);
     lna_gain &= 0x0f;
-    *strength = rssi;
+    *gain0 = lna_gain;
+    *gain1 = mixer_gain;
     return (rssi - lna_gain);
 }
 
@@ -468,28 +464,36 @@ int e4k_commonmode_set(struct e4k_state *e4k, int8_t value)
 /***********************************************************************
  * DC Offset */
 
-int e4k_manual_dc_offset(struct e4k_state *e4k, uint8_t iofs, uint8_t irange, uint8_t qofs, uint8_t qrange)
+/*! \brief Perform a DC offset calibration right now
+ *  \param [e4k] handle to the tuner chip
+ */
+int e4k_dc_offset_calibrate(struct e4k_state *e4k, uint8_t *offs_i, uint8_t *offs_q, uint8_t *offs_range)
+{
+    int result = 0;
+
+    /* make sure the DC range detector is enabled */
+    e4k_reg_set_mask(e4k, 0x2d, 0x04, 0x04);
+    result = e4k_reg_write(e4k, 0x29, 0x01);
+    if (result < 0)
+        return result;
+
+    /* extract I/Q offset and range values */
+    *offs_i = e4k_reg_read(e4k, 0x2a) & 0x3f;
+    *offs_q = e4k_reg_read(e4k, 0x2b) & 0x3f;
+    *offs_range  = e4k_reg_read(e4k, 0x2c);
+    return 0;
+}
+
+int e4k_manual_dc_offset(struct e4k_state *e4k, uint8_t iofs, uint8_t qofs, uint8_t range)
 {
     int res;
 
-    if(iofs > 0x3f)
-        return -1;
-    if(irange > 0x03)
-        return -1;
-    if(qofs > 0x3f)
-        return -1;
-    if(qrange > 0x03)
+    if((iofs > 0x3f) || (qofs > 0x3f))
         return -1;
 
-    res = e4k_reg_set_mask(e4k, 0x2a, 0x3f, iofs);
-    if(res < 0)
-        return res;
-
-    res = e4k_reg_set_mask(e4k, 0x2b, 0x3f, qofs);
-    if(res < 0)
-        return res;
-
-    res = e4k_reg_set_mask(e4k, 0x2c, 0x33, (qrange << 4) | irange);
+    res  = e4k_reg_set_mask(e4k, 0x2a, iofs, 0x3f);
+    res |= e4k_reg_set_mask(e4k, 0x2b, qofs, 0x3f);
+    res |= e4k_reg_set_mask(e4k, 0x2c, (range & 0x33), 0x33);
     return res;
 }
 
@@ -500,10 +504,8 @@ int e4k_manual_dc_offset(struct e4k_state *e4k, uint8_t iofs, uint8_t irange, ui
  */
 int e4k_standby(struct e4k_state *e4k, int enable)
 {
-	e4k_reg_set_mask(e4k, E4K_REG_MASTER1, E4K_MASTER1_NORM_STBY,
+	return e4k_reg_set_mask(e4k, E4K_REG_MASTER1, E4K_MASTER1_NORM_STBY,
 			 enable ? 0 : E4K_MASTER1_NORM_STBY);
-
-	return 0;
 }
 
 /***********************************************************************
@@ -525,6 +527,8 @@ static void magic_init(struct e4k_state *e4k)
  */
 int e4k_init(struct e4k_state *e4k)
 {
+    uint8_t offs_i, offs_q, range;
+
 	/* make a dummy i2c read or write command, will not be ACKed! */
 	e4k_reg_read(e4k, 0);
 
@@ -575,11 +579,8 @@ int e4k_init(struct e4k_state *e4k)
 	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_RC, 2600);
     e4k_reg_set_mask(e4k, 0x12, 0x20, 0x20);
 
-    /* make sure the DC range detector is enabled */
-    e4k_reg_set_mask(e4k, 0x2d, 0x04, 0x04);
-
     /* perform DC offset calibration */
-    e4k_reg_write(e4k, 0x29, 0x01);
+    e4k_dc_offset_calibrate(e4k, &offs_i, &offs_q, &range);
 
 	/* Disable DC LUT */
 	e4k_reg_set_mask(e4k, 0x2d, 0x03, 0);
