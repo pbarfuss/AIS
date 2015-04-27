@@ -59,9 +59,9 @@ struct demod_state_t {
     char nmea_buffer[SERBUFFER_LEN];
 };
 
-void protodec_initialize(struct demod_state_t *d, int serial_out_fd);
-void protodec_reset(struct demod_state_t *d);
-void protodec_getdata(unsigned int buffer_len, struct demod_state_t *d);
-void protodec_decode(unsigned char *in, unsigned int count, struct demod_state_t *d);
+void ais_protodec_initialize(struct demod_state_t *d, int serial_out_fd);
+void ais_protodec_reset(struct demod_state_t *d);
+void ais_protodec_getdata(unsigned int buffer_len, struct demod_state_t *d);
+void ais_protodec_decode(unsigned char *in, unsigned int count, struct demod_state_t *d);
 
 #endif

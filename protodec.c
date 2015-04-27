@@ -35,7 +35,7 @@ static const float inv_pi  =  0.3183098733;  /* 0x3ea2f984 */
 float mylat =  44.635225f;
 float mylng = -63.593534f;
 
-void protodec_initialize(struct demod_state_t *d, int serial_out_fd)
+void ais_protodec_initialize(struct demod_state_t *d, int serial_out_fd)
 {
 	memset(d, 0, sizeof(struct demod_state_t));
     d->nmea_out_fd = serial_out_fd;
@@ -45,7 +45,7 @@ void protodec_initialize(struct demod_state_t *d, int serial_out_fd)
 	d->seqnr = 0;
 }
 
-void protodec_reset(struct demod_state_t *d)
+void ais_protodec_reset(struct demod_state_t *d)
 {
 	d->state = ST_SKURR;
 	d->nskurr = 0;
@@ -797,7 +797,7 @@ void protodec_generate_nmea(struct demod_state_t *d, unsigned int bufferlen, uns
 	} while (sentencenum < sentences);
 }
 
-void protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
+void ais_protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 {
 	unsigned char type = protodec_henten(0, 6, d->rbuffer);
 	uint32_t mmsi = protodec_henten(8, 30, d->rbuffer);
@@ -882,7 +882,7 @@ void protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 	printf(" (!%s)\n", d->nmea_buffer);
 }
 
-void protodec_decode(unsigned char *in, unsigned int count, struct demod_state_t *d)
+void ais_protodec_decode(unsigned char *in, unsigned int count, struct demod_state_t *d)
 {
 	unsigned int i = 0, bufferlength, correct;
 
@@ -918,7 +918,7 @@ void protodec_decode(unsigned char *in, unsigned int count, struct demod_state_t
 				d->ndata++;
 
 				if (d->bufferpos >= 961) {
-					protodec_reset(d);
+					ais_protodec_reset(d);
 				}
 			}
 			break;
@@ -959,7 +959,7 @@ void protodec_decode(unsigned char *in, unsigned int count, struct demod_state_t
 					if (d->nstartsign == 0) {
 						d->nstartsign = 1;
 					} else {
-						protodec_reset(d);
+						ais_protodec_reset(d);
 					}
 				}
 			}
@@ -978,10 +978,10 @@ void protodec_decode(unsigned char *in, unsigned int count, struct demod_state_t
 					memset(d->buffer, 0, DEMOD_BUFFER_LEN);
 					d->bufferpos = 0;
 				} else {
-					protodec_reset(d);
+					ais_protodec_reset(d);
 				}
 			} else if (in[i] == 0) {
-				protodec_reset(d);
+				ais_protodec_reset(d);
 			}
 			d->nstartsign++;
 			break;
@@ -998,13 +998,13 @@ void protodec_decode(unsigned char *in, unsigned int count, struct demod_state_t
 					DBG(printf("CRC Checksum incorrect!!!\n"));
 					d->lostframes++;
 				}
-				protodec_getdata(bufferlength, d);
+			    ais_protodec_getdata(bufferlength, d);
 			} else {
 				DBG(printf("\n\nERROR in Frame\n"));
 				d->lostframes2++;
 			}
 			DBG(printf("_________________________________________________________\n\n"));
-			protodec_reset(d);
+			ais_protodec_reset(d);
 			break;
 		}
 		d->last = in[i];
