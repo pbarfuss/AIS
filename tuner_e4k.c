@@ -212,28 +212,16 @@ struct pll_settings {
 };
 
 static const struct pll_settings pll_vars[] = {
-	{KHZ(72400),	(1 << 3) | 7,	48},
-	{KHZ(81200),	(1 << 3) | 6,	40},
-	{KHZ(108300),	(1 << 3) | 5,	32},
-	{KHZ(162500),	(1 << 3) | 4,	24},
-	{KHZ(216600),	(1 << 3) | 3,	16},
-	{KHZ(325000),	(0 << 3) | 4,	12},
-	{KHZ(432000),	(0 << 3) | 3,	 8},
-	{KHZ(667000),	(0 << 3) | 2,	 6},
-	{KHZ(1200000),	(0 << 3) | 1,	 4}
+	{72400,	 (1 << 3) | 7,	48},
+	{81200,	 (1 << 3) | 6,	40},
+	{108300, (1 << 3) | 5,	32},
+	{162500, (1 << 3) | 4,	24},
+	{216600, (1 << 3) | 3,	16},
+	{325000, (0 << 3) | 4,	12},
+	{432000, (0 << 3) | 3,	 8},
+	{667000, (0 << 3) | 2,	 6},
+	{1200000,(0 << 3) | 1,	 4}
 };
-
-static int is_fvco_valid(uint32_t fvco_z)
-{
-	/* check if the resulting fosc is valid */
-	if (fvco_z/1000 < E4K_FVCO_MIN_KHZ ||
-	    fvco_z/1000 > E4K_FVCO_MAX_KHZ) {
-		rtlsdr_printf("[E4K] Fvco %u invalid\n", fvco_z);
-		return 0;
-	}
-
-	return 1;
-}
 
 static int is_fosc_valid(uint32_t fosc)
 {
@@ -255,109 +243,6 @@ static int use_3ph_mixing(uint32_t flo)
 	return 0;
 }
 
-/* \brief compute Fvco based on Fosc, Z and X
- * \returns positive value (Fvco in Hz), 0 in case of error */
-static int e4k_band_set(struct e4k_state *e4k, enum e4k_band band)
-{
-	int rc;
-
-	switch (band) {
-	case E4K_BAND_VHF2:
-	case E4K_BAND_VHF3:
-	case E4K_BAND_UHF:
-		e4k_reg_write(e4k, E4K_REG_BIAS, 3);
-		break;
-	case E4K_BAND_L:
-		e4k_reg_write(e4k, E4K_REG_BIAS, 0);
-		break;
-	}
-
-	/* workaround: if we don't reset this register before writing to it,
-	 * we get a gap between 325-350 MHz */
-	rc = e4k_reg_set_mask(e4k, E4K_REG_SYNTH1, 0x06, 0);
-	rc = e4k_reg_set_mask(e4k, E4K_REG_SYNTH1, 0x06, band << 1);
-	if (rc >= 0)
-		e4k->band = band;
-
-	return rc;
-}
-
-/*! \brief Compute PLL parameters for givent target frequency
- *  \param[in] fosc Clock input frequency applied to the chip (Hz)
- *  \param[in] intended_flo target tuning frequency (Hz)
- *  \returns actual PLL frequency, as close as possible to intended_flo,
- *	     0 in case of error
- */
-uint32_t e4k_compute_pll_params(struct e4k_state *e4k, uint32_t fosc, uint32_t intended_flo)
-{
-	uint32_t i;
-	uint8_t r = 2, r_idx = 0;
-	uint64_t intended_fvco, remainder;
-	uint64_t z = 0;
-	uint32_t x;
-    uint32_t rf_filt = 0;
-
-	if (!is_fosc_valid(fosc))
-		return 0;
-
-	for(i = 0; i < ARRAY_SIZE(pll_vars); ++i) {
-		if(intended_flo < pll_vars[i].freq) {
-			//three_phase_mixing = (pll_vars[i].reg_synth7 & 0x08) ? 1 : 0;
-			r_idx = pll_vars[i].reg_synth7;
-			r = pll_vars[i].mult;
-			break;
-		}
-	}
-
-	rtlsdr_printf("[E4K] Fint=%u, R=%u\n", intended_flo, r);
-
-	/* flo(max) = 1700MHz, R(max) = 48, we need 64bit! */
-	intended_fvco = (uint64_t)intended_flo * r;
-	if (intended_fvco < KHZ(E4K_FVCO_MIN_KHZ)) {
-		intended_fvco = KHZ(E4K_FVCO_MIN_KHZ);
-	} else if (intended_fvco > KHZ(E4K_FVCO_MAX_KHZ)) {
-		intended_fvco = KHZ(E4K_FVCO_MAX_KHZ);
-	}
-
-	/* compute integral component of multiplier */
-	z = intended_fvco / fosc;
-
-	/* compute fractional part.  this will not overflow,
-	* as fosc(max) = 30MHz and z(max) = 255 */
-	remainder = intended_fvco - (fosc * z);
-	/* remainder(max) = 30MHz, E4K_PLL_Y = 65536 -> 64bit! */
-	x = (remainder * E4K_PLL_Y) / fosc;
-	/* x(max) as result of this computation is 65536 */
-
-	/* program R + 3phase/2phase */
-	e4k_reg_write(e4k, E4K_REG_SYNTH7, r_idx);
-	/* program Z */
-	e4k_reg_write(e4k, E4K_REG_SYNTH3, z);
-	/* program X */
-	e4k_reg_write(e4k, E4K_REG_SYNTH4, x & 0xff);
-	e4k_reg_write(e4k, E4K_REG_SYNTH5, x >> 8);
-
-	/* set the band */
-	if (intended_flo < MHZ(140))
-		e4k_band_set(e4k, E4K_BAND_VHF2);
-	else if (intended_flo < MHZ(350))
-		e4k_band_set(e4k, E4K_BAND_VHF3);
-	else if (intended_flo < MHZ(1135))
-		e4k_band_set(e4k, E4K_BAND_UHF);
-	else
-		e4k_band_set(e4k, E4K_BAND_L);
-
-	/* select and set proper RF filter */
-    if (e4k->band == E4K_BAND_UHF) {
-        rf_filt = closest_arr_idx(rf_filt_center_uhf, 16, intended_flo);
-    } else if (e4k->band == E4K_BAND_L) {
-        rf_filt = closest_arr_idx(rf_filt_center_l, 16, intended_flo);
-    }
-	e4k_reg_set_mask(e4k, E4K_REG_FILT1, 0xF, rf_filt);
-
-    return intended_flo;
-}
-
 /*! \brief High-level tuning API, just specify frquency
  *
  *  This function will compute matching PLL parameters, program them into the
@@ -370,22 +255,102 @@ uint32_t e4k_compute_pll_params(struct e4k_state *e4k, uint32_t fosc, uint32_t i
  */
 int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
 {
-	uint32_t rc;
+    uint32_t i, x, freq_khz, fosc = e4k->fosc;
+    uint8_t r = 2, r_idx = 0;
+    uint8_t filt1 = 0, band = 0;
+    uint32_t intended_fvco, z = 0;
+    uint32_t remainder;
+    uint8_t bias = 3;
+    int rc = 0;
 
-	/* determine PLL parameters */
-	/* actually tune to those parameters */
-	rc = e4k_compute_pll_params(e4k, e4k->fosc, freq);
-	if (!rc)
-		return -1;
+	if (!is_fosc_valid(fosc))
+		return 0;
 
-	/* check PLL lock */
-	rc = e4k_reg_read(e4k, E4K_REG_SYNTH1);
-	if (!(rc & 0x01)) {
-		rtlsdr_printf("[E4K] PLL not locked for %u Hz!\n", freq);
-		return -1;
-	}
+    freq_khz = freq / 1000;
+    fosc /= 1000;
+    for(i = 0; i < ARRAY_SIZE(pll_vars); ++i) {
+        if(freq_khz < pll_vars[i].freq) {
+            //three_phase_mixing = (pll_vars[i].reg_synth7 & 0x08) ? 1 : 0;
+            r_idx = pll_vars[i].reg_synth7;
+            r = pll_vars[i].mult;
+            break;
+        }
+    }
 
-	return 0;
+    /* flo(max) = 1700MHz, R(max) = 48, we need 64bit! */
+    intended_fvco = freq_khz * r;
+    if (intended_fvco < E4K_FVCO_MIN_KHZ) {
+        intended_fvco = E4K_FVCO_MIN_KHZ;
+    } else if (intended_fvco > E4K_FVCO_MAX_KHZ) {
+        intended_fvco = E4K_FVCO_MAX_KHZ;
+    }
+
+    /* compute integral component of multiplier */
+    z = intended_fvco / fosc;
+
+    /* compute fractional part. this will not overflow, as fosc(max) = 30MHz and z(max) = 255 */
+    /* x(max) as result of this computation is 65536 */
+    remainder = intended_fvco - (fosc * z);
+    x = (remainder << 16) / fosc;
+
+    /* x(max) as result of this computation is 65536 */
+    rtlsdr_printf("[E4K] Fint=%u, R=%u, z=%u, x=%u (3ph: %u)\n", freq_khz, r, z, x, !!(r_idx & 0x08));
+
+    /* program R + 3phase/2phase */
+    e4k_reg_write(e4k, 0x0d, r_idx);
+    /* program Z */
+    e4k_reg_write(e4k, 0x09, (unsigned int)(z & 0xFF));
+    /* program X */
+    e4k_reg_write(e4k, 0x0a, x & 0xff);
+    e4k_reg_write(e4k, 0x0b, x >> 8);
+
+    /* we're in auto calibration mode, so there's no need to trigger it
+     * no we're not, we need to trigger it at least once upon a retune
+     * in order to enable auto calibration mode. do so here. -- bofh */
+    e4k_reg_set_mask(e4k, 0x0e, 0x01, 0x01);
+
+    /* set the band */
+    if (freq_khz < KHZ(140))
+        band = E4K_BAND_VHF2;
+    else if (freq_khz < KHZ(350))
+        band = E4K_BAND_VHF3;
+    else if (freq_khz < KHZ(1135))
+        band = E4K_BAND_UHF;
+    else
+        band = E4K_BAND_L;
+
+    /* Set the correct bias for the band in question */
+    if (band == E4K_BAND_L) {
+        bias = 0;
+    } else if (band == E4K_BAND_UHF) {
+        bias = 2;
+    }
+    e4k_reg_write(e4k, 0x78, bias);
+
+    /* workaround: if we don't reset this register before writing to it,
+     * we get a gap between 325-350 MHz */
+    rc = e4k_reg_set_mask(e4k, 0x07, 0, 0x06);
+    rc = e4k_reg_set_mask(e4k, 0x07, band << 1, 0x06);
+    if (rc >= 0)
+        e4k->band = band;
+
+    /* select and set proper RF filter */
+    if (band == E4K_BAND_UHF) {
+        filt1 = closest_arr_idx(rf_filt_center_uhf, 16, freq);
+    } else if (band == E4K_BAND_L) {
+        filt1 = closest_arr_idx(rf_filt_center_l, 16, freq);
+    }
+    e4k_reg_set_mask(e4k, 0x10, filt1, 0xF);
+
+    /* check PLL lock */
+    i = e4k_reg_read(e4k, 0x07);
+    if (!(i & 0x01)) {
+        rtlsdr_printf("[E4K] PLL not locked for %u Hz!\n", freq);
+        return 0;
+    }
+
+    //return freq;
+    return 1;
 }
 
 /***********************************************************************
