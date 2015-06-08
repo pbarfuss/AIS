@@ -1,0 +1,12 @@
+Running this should be straightforward - make sure you have an rtl-sdr dongle plugged into the system and that you can access it and that the kernel DVB-T driver isn't loaded (otherwise you'll get complaints from it to fix any of those specific things), then just running it with no arguments will run it in the foreground and dump both AIS message pseudoxml and receiver profiling information to standard output.
+
+Arguments:
+-d N - pick which device (of several) to use, accepts either a numeric value or a serial number string
+       (upon program launch, serial numbers of all connected dongles are displayed. if you need to reprogram a dongle to a different serial number or to enable its serial number readout, use rtl_eeprom from the standard rtl-sdr toolkit)
+-D - daemonize (without specifying -F and -P below it defaults to dumping AIS data to AIS.xml, AIS profiling data to AISprofiling.csv and error messages to rtl-ais.log, all in the current working directory).
+-F - specify filename for dumping AIS message data to. If given just a filename, is taken against the current working directory.
+-P - same as above, but for profiling CSV data.
+-L - LNA gain, 1dB step (corresponds to 0.5dB step internally), actual levels vary based on chipset (R820T vs. E4000). Defaults to automatic (i.e. LNA AGC).
+-M - Mixer gain, 1dB step on R820T, 0 or 7.5dB on E4000 (for E4000, any value > 0 will set it to 7.5dB). Defaults to automatic (i.e. Mixer AGC).
+-p - Crystal PPM error. Measure using rtl_test and/or kalibrate_rtl, in my experience rtl_test's measurement based on the internal counter was good enough for just about any purpose (and wasn't off by more than 3 ppm across 8 dongles, where the average PPM error was on the order of 71ppm). PPM error, for the curious, is computed via: RTL_XTAL_FREQ * (1 + ppm/1e6), where RTL_XTAL_FREQ is the default clock frequency of the RTL-SDR, namely 28.8MHz.
+

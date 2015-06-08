@@ -1,0 +1,10 @@
+Standalone decoder: Used to test the AIS decoding logic and make sure that it works despite possible bugs in the RF frontend.
+
+Format requested: 8-bit unsigned raw I/Q data, captured via rtl-sdr or rtl_iq. The former does not Hilbert transform the channels, the latter does, use the commandline flag -H if working with data from the former. The samplerate must be a multiple of 192kHz (and is preferred to be exactly that, because then the resampler is not invoked).
+
+Arguments:
+-F - specify filename for dumping AIS message data to. If given just a filename, is taken against the current working directory.
+-P - same as above, but for profiling CSV data.
+-H - enable Hilbert transform.
+-s - override input samplerate (default is read out of the WAV header - this flag is *NEEDED* if you are feeding it headerless samples as opposed to ones with a wav header).
+

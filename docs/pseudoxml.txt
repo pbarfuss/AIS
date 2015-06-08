@@ -1,0 +1,18 @@
+The format output by the decoder for the primary AIS messages is a pseudo-XML format that looks like the following:
+
+<AISMessage MMSI="NNNNNNNNN" ID="NN"> - where ID is the AIS message ID and MMSI should be self-explanatory.
+<Timestamp>NNNNNNNN.NNNNNNNN</Timestamp> - UTC timestamp in POSIX (seconds & microseconds since 1970) format.
+
+The rest is for an example message, one that indicates position (Messages 01 - 04):
+
+<Latitude>42.0N</Latitude>
+<Longitude>63.75W</Longitude> - Negative Longitudes map to degrees West, positive ones map to degrees East
+<Speed>9kn</Speed>
+<Heading>14deg</Heading> - This is the arccosine against North, according to the AIS spec. (However it's unclear on whether it's true North or Magnetic North).
+</AISMessage>
+
+The format output by the decoder for profiling data is very simple, it is a CSV file with the following columns:
+MMSI, Julian Day Number, Hours:Minutes:Seconds,
+value of d_phase from the matched filter decoder at the start of decode of this transmission,
+value of d_freq from the matched filter decoder at the start of decode of this transmission
+ 
