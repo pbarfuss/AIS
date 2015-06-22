@@ -975,43 +975,41 @@ uint32_t rtlsdr_get_center_freq(rtlsdr_dev_t *dev)
 
 int rtlsdr_set_tuner_lna_gain(rtlsdr_dev_t *dev, unsigned int gain)
 {
-	int r = 0;
     unsigned int lna_gain = 0;
 
-    if (gain > 15) gain = 15;
+    if (gain > 65) gain = 65;
 
+	if (dev->tuner->set_lna_gain) {
+		rtlsdr_set_i2c_repeater(dev, 1);
+		dev->tuner->set_lna_gain((void *)dev, lna_gain);
+		rtlsdr_set_i2c_repeater(dev, 0);
+	}
+
+    gain /= 5;
 	if (dev->tuner_type == RTLSDR_TUNER_E4000) {
         lna_gain = e4k_lna_mixer_gains[2*gain];
     } else {
         lna_gain = r82xx_lna_mixer_gains[2*gain];
     }
-
-	if (dev->tuner->set_lna_gain) {
-		rtlsdr_set_i2c_repeater(dev, 1);
-		r = dev->tuner->set_lna_gain((void *)dev, lna_gain);
-		rtlsdr_set_i2c_repeater(dev, 0);
-	}
 	return lna_gain;
 }
 
 int rtlsdr_set_tuner_mixer_gain(rtlsdr_dev_t *dev, unsigned int gain)
 {
-	int r = 0;
     unsigned int mixer_gain = 0;
 
-    if (gain > 15) gain = 15;
+    gain &= 0x1f;
+	if (dev->tuner->set_lna_gain) {
+		rtlsdr_set_i2c_repeater(dev, 1);
+		dev->tuner->set_mixer_gain((void *)dev, mixer_gain);
+		rtlsdr_set_i2c_repeater(dev, 0);
+	}
 
 	if (dev->tuner_type == RTLSDR_TUNER_E4000) {
         mixer_gain = e4k_lna_mixer_gains[2*gain+1];
     } else {
         mixer_gain = r82xx_lna_mixer_gains[2*gain+1];
     }
-
-	if (dev->tuner->set_lna_gain) {
-		rtlsdr_set_i2c_repeater(dev, 1);
-		r = dev->tuner->set_mixer_gain((void *)dev, mixer_gain);
-		rtlsdr_set_i2c_repeater(dev, 0);
-	}
 	return mixer_gain;
 }
 
@@ -1120,8 +1118,7 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 {
 	int r = 0;
 	uint16_t tmp;
-	uint32_t rsamp_ratio, real_rsamp_ratio;
-	float real_rate;
+	uint32_t rsamp_ratio;
 
 	if (!dev)
 		return -1;
@@ -1136,19 +1133,13 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 	rsamp_ratio = (dev->rtl_xtal * TWO_POW(22)) / samp_rate;
 	rsamp_ratio &= 0x0ffffffc;
 
-	real_rsamp_ratio = rsamp_ratio | ((rsamp_ratio & 0x08000000) << 1);
-	real_rate = (dev->rtl_xtal * TWO_POW(22)) / real_rsamp_ratio;
-
-	if (((float)samp_rate) != real_rate)
-		rtlsdr_printf("Exact sample rate is: %f Hz\n", real_rate);
-
 	if (dev->tuner && dev->tuner->set_bw) {
 		rtlsdr_set_i2c_repeater(dev, 1);
-		dev->tuner->set_bw(dev, (int)real_rate);
+		dev->tuner->set_bw(dev, samp_rate);
 		rtlsdr_set_i2c_repeater(dev, 0);
 	}
 
-	dev->rate = (uint32_t)real_rate;
+	dev->rate = samp_rate;
 
 	tmp = (rsamp_ratio >> 16);
 	r |= rtlsdr_demod_write_reg(dev, 1, 0x9f, tmp, 2);
@@ -1230,7 +1221,8 @@ int rtlsdr_get_offset_tuning(rtlsdr_dev_t *dev)
 int rtlsdr_set_dithering(rtlsdr_dev_t *dev, int dither)
 {
     if (dev->tuner_type == RTLSDR_TUNER_R820T) {
-          return r82xx_set_dither(&dev->r82xx_p, dither);
+        r82xx_set_dither(&dev->r82xx_p, dither);
+        return 0;
     }
     return 1;
 }
