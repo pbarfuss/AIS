@@ -46,8 +46,8 @@ typedef struct _comb_filter_t {
 } comb_filter_t;
 
 typedef struct _cic_filter_t {
-    int32_t d_sum;
-    comb_filter_t comb;
+    int32_t d_sum_r, d_sum_j;
+    comb_filter_t comb_r, comb_j;
 } cic_filter_t;
 
 static int32_t cycle_comb(comb_filter_t *c, uint32_t c1, uint32_t idx) {
@@ -62,13 +62,18 @@ static int32_t cycle_comb(comb_filter_t *c, uint32_t c1, uint32_t idx) {
 
 void cic_init(cic_filter_t *cic, unsigned int M)
 {
-    cic->d_sum = 0;
-    cic->comb.M = M;
-    cic->comb.d_l[0] = 0;
-    cic->comb.d_l[1] = 0;
-    cic->comb.d_l[2] = 0;
-    cic->comb.d_l[3] = 0;
-    cic->comb.cur_d = 0;
+    cic->d_sum_r = cic->d_sum_j = 0;
+    cic->comb_r.M = cic->comb_j.M = M;
+    cic->comb_r.d_l[0] = 0;
+    cic->comb_r.d_l[1] = 0;
+    cic->comb_r.d_l[2] = 0;
+    cic->comb_r.d_l[3] = 0;
+    cic->comb_r.cur_d = 0;
+    cic->comb_j.d_l[0] = 0;
+    cic->comb_j.d_l[1] = 0;
+    cic->comb_j.d_l[2] = 0;
+    cic->comb_j.d_l[3] = 0;
+    cic->comb_j.cur_d = 0;
 }
 
 /* 90 rotation is 1+0j, 0+1j, -1+0j, 0-1j
@@ -95,14 +100,19 @@ void hilbert(unsigned char *buf, uint32_t len)
 unsigned int cic4_decimate(cic_filter_t *cic, float *out, uint8_t *samples_in, unsigned int samples_count)
 {
     unsigned int i, j = 0, decim_ctr = 0;
+    samples_count <<= 1;
     for (i = 0; i < samples_count; i++) {
-        int32_t sample, sample_out;
-        cic->d_sum = ((int32_t)(samples_in[i] ^ 0x80) - cic->d_sum);
-        sample = cic->d_sum;
+        int32_t sample_r, sample_j;
+        cic->d_sum_r = ((int32_t)(samples_in[2*i  ] ^ 0x80) - cic->d_sum_r);
+        cic->d_sum_j = ((int32_t)(samples_in[2*i+1] ^ 0x80) - cic->d_sum_j);
+        sample_r = cic->d_sum_r;
+        sample_j = cic->d_sum_j;
         if (++decim_ctr < 16) continue;
         {
-            sample_out = cycle_comb(&cic->comb, sample, 4);
-            out[j++] = (float)sample_out;
+            int32_t sample_out_r = cycle_comb(&cic->comb_r, sample_r, 4);
+            int32_t sample_out_j = cycle_comb(&cic->comb_j, sample_j, 4);
+            out[2*j  ] = (float)sample_out_r;
+            out[2*j+1] = (float)sample_out_j;
         }
     }
     return j;
@@ -111,14 +121,19 @@ unsigned int cic4_decimate(cic_filter_t *cic, float *out, uint8_t *samples_in, u
 unsigned int cic1_decimate(cic_filter_t *cic, float *out, uint8_t *samples_in, unsigned int samples_count)
 {
     unsigned int i, j = 0, decim_ctr = 0;
+    samples_count <<= 1;
     for (i = 0; i < samples_count; i++) {
-        int32_t sample, sample_out;
-        cic->d_sum = ((int32_t)(samples_in[i] ^ 0x80) - cic->d_sum);
-        sample = cic->d_sum;
+        int32_t sample_r, sample_j;
+        cic->d_sum_r = ((int32_t)(samples_in[2*i  ] ^ 0x80) - cic->d_sum_r);
+        cic->d_sum_j = ((int32_t)(samples_in[2*i+1] ^ 0x80) - cic->d_sum_j);
+        sample_r = cic->d_sum_r;
+        sample_j = cic->d_sum_j;
         if (++decim_ctr < 16) continue;
         {
-            sample_out = cycle_comb(&cic->comb, sample, 2);
-            out[j++] = (float)sample_out;
+            int32_t sample_out_r = cycle_comb(&cic->comb_r, sample_r, 2);
+            int32_t sample_out_j = cycle_comb(&cic->comb_j, sample_j, 2);
+            out[2*j  ] = (float)sample_out_r;
+            out[2*j+1] = (float)sample_out_j;
         }
     }
     return j;
