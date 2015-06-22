@@ -25,67 +25,67 @@
 #ifndef R82XX_H
 #define R82XX_H
 
-#define R820T_I2C_ADDR		0x34
-#define R828D_I2C_ADDR		0x74
-#define R828D_XTAL_FREQ		16000000
+#define R820T_I2C_ADDR      0x34
+#define R828D_I2C_ADDR      0x74
+#define R828D_XTAL_FREQ     16000000
 
-#define R82XX_CHECK_ADDR	0x00
-#define R82XX_CHECK_VAL		0x69
+#define R82XX_CHECK_ADDR    0x00
+#define R82XX_CHECK_VAL     0x69
 
 #define R82XX_IF_FREQ           3570000
 #define R82XX_IF_FREQ_KHZ       3570
 #define R82XX_DEFAULT_IF_BW     2000
 
-#define REG_SHADOW_START	5
-#define NUM_REGS		30
-#define NUM_IMR			5
-#define IMR_TRIAL		9
+#define REG_SHADOW_START    5
+#define NUM_REGS        30
+#define NUM_IMR         5
+#define IMR_TRIAL       9
 
-#define VER_NUM			49
+#define VER_NUM         49
 
 enum r82xx_chip {
-	CHIP_R820T,
-	CHIP_R620D,
-	CHIP_R828D,
-	CHIP_R828,
-	CHIP_R828S,
-	CHIP_R820C,
+    CHIP_R820T,
+    CHIP_R620D,
+    CHIP_R828D,
+    CHIP_R828,
+    CHIP_R828S,
+    CHIP_R820C,
 };
 
 enum r82xx_tuner_type {
-	TUNER_RADIO = 1,
-	TUNER_ANALOG_TV,
-	TUNER_DIGITAL_TV
+    TUNER_RADIO = 1,
+    TUNER_ANALOG_TV,
+    TUNER_DIGITAL_TV
 };
 
 enum r82xx_xtal_cap_value {
-	XTAL_LOW_CAP_30P = 0,
-	XTAL_LOW_CAP_20P,
-	XTAL_LOW_CAP_10P,
-	XTAL_LOW_CAP_0P,
-	XTAL_HIGH_CAP_0P
+    XTAL_LOW_CAP_30P = 0,
+    XTAL_LOW_CAP_20P,
+    XTAL_LOW_CAP_10P,
+    XTAL_LOW_CAP_0P,
+    XTAL_HIGH_CAP_0P
 };
 
 struct r82xx_priv {
-	uint8_t i2c_addr;
-	uint32_t xtal;
-	enum r82xx_chip rafael_chip;
-	uint8_t max_i2c_msg_len;
+    uint8_t i2c_addr;
+    uint32_t xtal;
+    enum r82xx_chip rafael_chip;
+    uint8_t max_i2c_msg_len;
 
-	uint8_t				regs[NUM_REGS];
-	enum r82xx_xtal_cap_value	xtal_cap_sel;
-	uint8_t				fil_cal_code;
-	uint8_t				input;
+    uint8_t             regs[NUM_REGS];
+    enum r82xx_xtal_cap_value   xtal_cap_sel;
+    uint8_t             fil_cal_code;
+    uint8_t             input;
     uint8_t             disable_dither;
-	uint8_t             reg_cache;
+    uint8_t             reg_cache;
 
-	void *rtl_dev;
+    void *rtl_dev;
 };
 
 struct r82xx_freq_range {
-	uint32_t	freq;
-	uint8_t		rf_mux_ploy;
-	uint8_t		tf_c;
+    uint32_t    freq;
+    uint8_t     rf_mux_ploy;
+    uint8_t     tf_c;
 };
 
 int r82xx_standby(struct r82xx_priv *priv);

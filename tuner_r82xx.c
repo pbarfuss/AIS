@@ -69,91 +69,91 @@ static const uint8_t r82xx_init_array[NUM_REGS] = {
 
 /* Tuner frequency ranges */
 static const struct r82xx_freq_range freq_ranges[] = {
-	{
-	/* .freq = */		0,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0xdf,	/* R27[7:0]  band2,band0 */
-	}, {
-	/* .freq = */		50,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0xbe,	/* R27[7:0]  band4,band1  */
-	}, {
-	/* .freq = */		55,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x8b,	/* R27[7:0]  band7,band4 */
-	}, {
-	/* .freq = */		60,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x7b,	/* R27[7:0]  band8,band4 */
-	}, {
-	/* .freq = */		65,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x69,	/* R27[7:0]  band9,band6 */
-	}, {
-	/* .freq = */		70,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x58,	/* R27[7:0]  band10,band7 */
-	}, {
-	/* .freq = */		75,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x44,	/* R27[7:0]  band11,band11 */
-	}, {
-	/* .freq = */		80,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x44,	/* R27[7:0]  band11,band11 */
-	}, {
-	/* .freq = */		90,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x34,	/* R27[7:0]  band12,band11 */
-	}, {
-	/* .freq = */		100,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x34,	/* R27[7:0]  band12,band11 */
-	}, {
-	/* .freq = */		110,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x24,	/* R27[7:0]  band13,band11 */
-	}, {
-	/* .freq = */		120,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x24,	/* R27[7:0]  band13,band11 */
-	}, {
-	/* .freq = */		140,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x14,	/* R27[7:0]  band14,band11 */
-	}, {
-	/* .freq = */		180,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x13,	/* R27[7:0]  band14,band12 */
-	}, {
-	/* .freq = */		220,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x13,	/* R27[7:0]  band14,band12 */
-	}, {
-	/* .freq = */		250,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x11,	/* R27[7:0]  highest,highest */
-	}, {
-	/* .freq = */		280,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x02,	/* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
-	/* .tf_c = */		0x00,	/* R27[7:0]  highest,highest */
-	}, {
-	/* .freq = */		310,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x41,	/* R26[7:6]=1 (bypass)  R26[1:0]=1 (middle) */
-	/* .tf_c = */		0x00,	/* R27[7:0]  highest,highest */
-	}, {
-	/* .freq = */		450,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x41,	/* R26[7:6]=1 (bypass)  R26[1:0]=1 (middle) */
-	/* .tf_c = */		0x00,	/* R27[7:0]  highest,highest */
-	}, {
-	/* .freq = */		588,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x40,	/* R26[7:6]=1 (bypass)  R26[1:0]=0 (highest) */
-	/* .tf_c = */		0x00,	/* R27[7:0]  highest,highest */
-	}, {
-	/* .freq = */		650,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x40,	/* R26[7:6]=1 (bypass)  R26[1:0]=0 (highest) */
-	/* .tf_c = */		0x00,	/* R27[7:0]  highest,highest */
-	}
+    {
+    /* .freq = */       0,  /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0xdf,   /* R27[7:0]  band2,band0 */
+    }, {
+    /* .freq = */       50, /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0xbe,   /* R27[7:0]  band4,band1  */
+    }, {
+    /* .freq = */       55, /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x8b,   /* R27[7:0]  band7,band4 */
+    }, {
+    /* .freq = */       60, /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x7b,   /* R27[7:0]  band8,band4 */
+    }, {
+    /* .freq = */       65, /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x69,   /* R27[7:0]  band9,band6 */
+    }, {
+    /* .freq = */       70, /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x58,   /* R27[7:0]  band10,band7 */
+    }, {
+    /* .freq = */       75, /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x44,   /* R27[7:0]  band11,band11 */
+    }, {
+    /* .freq = */       80, /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x44,   /* R27[7:0]  band11,band11 */
+    }, {
+    /* .freq = */       90, /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x34,   /* R27[7:0]  band12,band11 */
+    }, {
+    /* .freq = */       100,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x34,   /* R27[7:0]  band12,band11 */
+    }, {
+    /* .freq = */       110,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x24,   /* R27[7:0]  band13,band11 */
+    }, {
+    /* .freq = */       120,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x24,   /* R27[7:0]  band13,band11 */
+    }, {
+    /* .freq = */       140,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x14,   /* R27[7:0]  band14,band11 */
+    }, {
+    /* .freq = */       180,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x13,   /* R27[7:0]  band14,band12 */
+    }, {
+    /* .freq = */       220,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x13,   /* R27[7:0]  band14,band12 */
+    }, {
+    /* .freq = */       250,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x11,   /* R27[7:0]  highest,highest */
+    }, {
+    /* .freq = */       280,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x02,   /* R26[7:6]=0 (LPF)  R26[1:0]=2 (low) */
+    /* .tf_c = */       0x00,   /* R27[7:0]  highest,highest */
+    }, {
+    /* .freq = */       310,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x41,   /* R26[7:6]=1 (bypass)  R26[1:0]=1 (middle) */
+    /* .tf_c = */       0x00,   /* R27[7:0]  highest,highest */
+    }, {
+    /* .freq = */       450,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x41,   /* R26[7:6]=1 (bypass)  R26[1:0]=1 (middle) */
+    /* .tf_c = */       0x00,   /* R27[7:0]  highest,highest */
+    }, {
+    /* .freq = */       588,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x40,   /* R26[7:6]=1 (bypass)  R26[1:0]=0 (highest) */
+    /* .tf_c = */       0x00,   /* R27[7:0]  highest,highest */
+    }, {
+    /* .freq = */       650,    /* Start freq, in MHz */
+    /* .rf_mux_ploy = */    0x40,   /* R26[7:6]=1 (bypass)  R26[1:0]=0 (highest) */
+    /* .tf_c = */       0x00,   /* R27[7:0]  highest,highest */
+    }
 };
 
 /*
@@ -161,106 +161,105 @@ static const struct r82xx_freq_range freq_ranges[] = {
  */
 static void shadow_store(struct r82xx_priv *priv, uint8_t reg, const uint8_t *val, int len)
 {
-	int r = reg - REG_SHADOW_START;
+    int r = reg - REG_SHADOW_START;
 
-	if (r < 0) {
-		len += r;
-		r = 0;
-	}
-	if (len <= 0)
-		return;
-	if (len > NUM_REGS - r)
-		len = NUM_REGS - r;
+    if (r < 0) {
+        len += r;
+        r = 0;
+    }
+    if (len <= 0)
+        return;
+    if (len > NUM_REGS - r)
+        len = NUM_REGS - r;
 
-	memcpy(&priv->regs[r], val, len);
+    memcpy(&priv->regs[r], val, len);
 }
 
 static int r82xx_write(struct r82xx_priv *priv, uint8_t reg, const uint8_t *val, unsigned int len)
 {
-	int rc, size, pos = 0;
-	uint8_t buf[NUM_REGS + 1];
+    int rc, size, pos = 0;
+    uint8_t buf[NUM_REGS + 1];
 
-	/* Store the shadow registers */
-	shadow_store(priv, reg, val, len);
+    /* Store the shadow registers */
+    shadow_store(priv, reg, val, len);
 
-	do {
-		if (len > 7)
-			size = 7;
-		else
-			size = len;
+    do {
+        if (len > 7)
+            size = 7;
+        else
+            size = len;
 
-		/* Fill I2C buffer */
-		buf[0] = reg;
-		memcpy(&buf[1], &val[pos], size);
+        /* Fill I2C buffer */
+        buf[0] = reg;
+        memcpy(&buf[1], &val[pos], size);
 
-		rc = rtlsdr_i2c_write_fn(priv->rtl_dev, R820T_I2C_ADDR, buf, size + 1);
-		if (rc != size + 1) {
-			rtlsdr_printf("r82xx_write: i2c wr failed=%d reg=%02x len=%d\n", rc, reg, size);
-			if (rc < 0)
-				return rc;
-			return -1;
-		}
+        rc = rtlsdr_i2c_write_fn(priv->rtl_dev, R820T_I2C_ADDR, buf, size + 1);
+        if (rc != size + 1) {
+            rtlsdr_printf("r82xx_write: i2c wr failed=%d reg=%02x len=%d\n", rc, reg, size);
+            if (rc < 0)
+                return rc;
+            return -1;
+        }
 
-		reg += size;
-		len -= size;
-		pos += size;
-	} while (len > 0);
+        reg += size;
+        len -= size;
+        pos += size;
+    } while (len > 0);
 
-	return 0;
+    return 0;
 }
 
 static int r82xx_read_cache_reg(struct r82xx_priv *priv, int reg)
 {
-	reg -= REG_SHADOW_START;
+    reg -= REG_SHADOW_START;
 
-	if (reg >= 0 && reg < NUM_REGS)
-		return priv->regs[reg];
-	else
-		return -1;
+    if (reg >= 0 && reg < NUM_REGS)
+        return priv->regs[reg];
+    else
+        return -1;
 }
 
 static int r82xx_write_reg(struct r82xx_priv *priv, uint8_t reg, uint8_t val)
 {
-	if (priv->reg_cache && r82xx_read_cache_reg(priv, reg) == val)
-		return 0;
-	return r82xx_write(priv, reg, &val, 1);
+    if (priv->reg_cache && r82xx_read_cache_reg(priv, reg) == val)
+        return 0;
+    return r82xx_write(priv, reg, &val, 1);
 }
 
 static int r82xx_write_reg_mask(struct r82xx_priv *priv, uint8_t reg, uint8_t val, uint8_t bit_mask)
 {
-	int rc = r82xx_read_cache_reg(priv, reg);
+    int rc = r82xx_read_cache_reg(priv, reg);
 
-	if (rc < 0)
-		return rc;
+    if (rc < 0)
+        return rc;
 
-	val = (rc & ~bit_mask) | (val & bit_mask);
-	return r82xx_write_reg(priv, reg, val);
+    val = (rc & ~bit_mask) | (val & bit_mask);
+    return r82xx_write_reg(priv, reg, val);
 }
 
 static uint8_t r82xx_bitrev(uint8_t byte)
 {
-	const uint8_t lut[16] = { 0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe,
-				  0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf };
-
-	return (lut[byte & 0xf] << 4) | lut[byte >> 4];
+    const uint8_t lut[16] = { 0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe,
+                              0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf };
+    return (lut[byte & 0xf] << 4) | lut[byte >> 4];
 }
 
 static int r82xx_read_reg(struct r82xx_priv *priv, uint8_t reg, uint8_t *val)
 {
-	int rc;
-	uint8_t buf[5];
+    int rc;
+    uint8_t buf[5];
 
-	rc = rtlsdr_i2c_read_fn(priv->rtl_dev, R820T_I2C_ADDR, buf, 5);
-	if (rc < 0) {
-		rtlsdr_printf("r82xx_read_reg: i2c rd failed=%d reg=%02x\n", rc, reg);
-		if (rc < 0)
-			return rc;
-		return -1;
-	}
+    rc = rtlsdr_i2c_read_fn(priv->rtl_dev, R820T_I2C_ADDR, buf, 5);
+    if (rc < 0) {
+        rtlsdr_printf("r82xx_read_reg: i2c rd failed=%d reg=%02x\n", rc, reg);
+        if (rc < 0)
+            return rc;
+        return -1;
+    }
 
-	/* Copy data to the output buffer */
+    /* Copy data to the output buffer */
     *val = r82xx_bitrev(buf[reg]);
-	return 0;
+    return 0;
 }
 
 /*
@@ -269,172 +268,172 @@ static int r82xx_read_reg(struct r82xx_priv *priv, uint8_t reg, uint8_t *val)
 
 static int r82xx_set_mux(struct r82xx_priv *priv, uint32_t freq)
 {
-	const struct r82xx_freq_range *range;
-	int rc;
-	unsigned int i;
+    const struct r82xx_freq_range *range;
+    int rc;
+    unsigned int i;
 
-	/* Get the proper frequency range */
-	freq = freq / 1000000;
-	for (i = 0; i < ARRAY_SIZE(freq_ranges) - 1; i++) {
-		if (freq < freq_ranges[i + 1].freq)
-			break;
-	}
-	range = &freq_ranges[i];
+    /* Get the proper frequency range */
+    freq = freq / 1000000;
+    for (i = 0; i < ARRAY_SIZE(freq_ranges) - 1; i++) {
+        if (freq < freq_ranges[i + 1].freq)
+            break;
+    }
+    range = &freq_ranges[i];
 
-	/* Open Drain */
-	rc = r82xx_write_reg_mask(priv, 0x17, ((freq < 75) ? 0x08 : 0x00), 0x08);
-	if (rc < 0)
-		return rc;
+    /* Open Drain */
+    rc = r82xx_write_reg_mask(priv, 0x17, ((freq < 75) ? 0x08 : 0x00), 0x08);
+    if (rc < 0)
+        return rc;
 
-	/* RF_MUX,Polymux */
-	rc = r82xx_write_reg_mask(priv, 0x1a, range->rf_mux_ploy, 0xc3);
-	if (rc < 0)
-		return rc;
+    /* RF_MUX,Polymux */
+    rc = r82xx_write_reg_mask(priv, 0x1a, range->rf_mux_ploy, 0xc3);
+    if (rc < 0)
+        return rc;
 
-	/* TF BAND */
-	rc = r82xx_write_reg(priv, 0x1b, range->tf_c);
-	if (rc < 0)
-		return rc;
+    /* TF BAND */
+    rc = r82xx_write_reg(priv, 0x1b, range->tf_c);
+    if (rc < 0)
+        return rc;
 
-	/* XTAL CAP & Drive */
-	rc = r82xx_write_reg_mask(priv, 0x10, 0x00, 0x0b);
-	if (rc < 0)
-		return rc;
+    /* XTAL CAP & Drive */
+    rc = r82xx_write_reg_mask(priv, 0x10, 0x00, 0x0b);
+    if (rc < 0)
+        return rc;
 
-	r82xx_write_reg_mask(priv, 0x08, 0x00, 0x3f);
-	r82xx_write_reg_mask(priv, 0x09, 0x00, 0x3f);
-	return rc;
+    r82xx_write_reg_mask(priv, 0x08, 0x00, 0x3f);
+    r82xx_write_reg_mask(priv, 0x09, 0x00, 0x3f);
+    return rc;
 }
 
 static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 {
-	int rc, i;
-	uint64_t vco_freq;
-	uint64_t vco_div;
-	uint32_t vco_min = 1750000; /* kHz */
-	uint32_t vco_max = vco_min * 2; /* kHz */
-	uint32_t freq_khz, pll_ref;
-	uint32_t sdm = 0;
-	uint8_t mix_div = 2;
-	uint8_t div_num = 0;
-	uint8_t vco_power_ref = 2;
-	uint8_t ni, si, nint, vco_fine_tune, val;
+    int rc, i;
+    uint64_t vco_freq;
+    uint64_t vco_div;
+    uint32_t vco_min = 1750000; /* kHz */
+    uint32_t vco_max = vco_min * 2; /* kHz */
+    uint32_t freq_khz, pll_ref;
+    uint32_t sdm = 0;
+    uint8_t mix_div = 2;
+    uint8_t div_num = 0;
+    uint8_t vco_power_ref = 2;
+    uint8_t ni, si, nint, vco_fine_tune, val;
     uint8_t reg2 = 0;
 
-	/* Frequency in kHz */
-	freq_khz = (freq + 500) / 1000;
-	pll_ref = priv->xtal;
+    /* Frequency in kHz */
+    freq_khz = (freq + 500) / 1000;
+    pll_ref = priv->xtal;
 
-	/* set pll autotune = 128kHz */
-	rc = r82xx_write_reg_mask(priv, 0x1a, 0x00, 0x0c);
-	if (rc < 0)
-		return rc;
+    /* set pll autotune = 128kHz */
+    rc = r82xx_write_reg_mask(priv, 0x1a, 0x00, 0x0c);
+    if (rc < 0)
+        return rc;
 
-	/* set VCO current = 100 */
-	rc = r82xx_write_reg_mask(priv, 0x12, 0x80, 0xe0);
-	if (rc < 0)
-		return rc;
+    /* set VCO current = 100 */
+    rc = r82xx_write_reg_mask(priv, 0x12, 0x80, 0xe0);
+    if (rc < 0)
+        return rc;
 
-	/* Calculate divider */
-	for (mix_div = 2, div_num = 0; mix_div < 64; mix_div <<= 1, div_num++)
+    /* Calculate divider */
+    for (mix_div = 2, div_num = 0; mix_div < 64; mix_div <<= 1, div_num++)
         if (((freq_khz * mix_div) >= vco_min) && ((freq_khz * mix_div) < vco_max))
             break;
 
-	if (priv->rafael_chip == CHIP_R828D)
-		vco_power_ref = 1;
+    if (priv->rafael_chip == CHIP_R828D)
+        vco_power_ref = 1;
 
-	/*
-	rc = r82xx_read(priv, 0x00, data, sizeof(data));
-	if (rc < 0)
-		return rc;
-	vco_fine_tune = (data[4] & 0x30) >> 4;
-	*/
-	vco_fine_tune = 2;
+    /*
+    rc = r82xx_read(priv, 0x00, data, sizeof(data));
+    if (rc < 0)
+        return rc;
+    vco_fine_tune = (data[4] & 0x30) >> 4;
+    */
+    vco_fine_tune = 2;
 
-	if (vco_fine_tune > vco_power_ref)
-		div_num = div_num - 1;
-	else if (vco_fine_tune < vco_power_ref)
-		div_num = div_num + 1;
+    if (vco_fine_tune > vco_power_ref)
+        div_num = div_num - 1;
+    else if (vco_fine_tune < vco_power_ref)
+        div_num = div_num + 1;
 
-	rc = r82xx_write_reg_mask(priv, 0x10, div_num << 5, 0xe0);
-	if (rc < 0)
-		return rc;
+    rc = r82xx_write_reg_mask(priv, 0x10, div_num << 5, 0xe0);
+    if (rc < 0)
+        return rc;
 
-	vco_freq = (uint64_t)freq * (uint64_t)mix_div;
+    vco_freq = (uint64_t)freq * (uint64_t)mix_div;
 
-	/*
-	 * We want to approximate:
-	 *  vco_freq / (2 * pll_ref)
-	 * in the form:
-	 *  nint + sdm/65536
-	 * where nint,sdm are integers and 0 < nint, 0 <= sdm < 65536
-	 * Scaling to fixed point and rounding:
-	 *  vco_div = 65536*(nint + sdm/65536) = int( 0.5 + 65536 * vco_freq / (2 * pll_ref) )
-	 *  vco_div = 65536*nint + sdm         = int( (pll_ref + 65536 * vco_freq) / (2 * pll_ref) )
-	 */
+    /*
+     * We want to approximate:
+     *  vco_freq / (2 * pll_ref)
+     * in the form:
+     *  nint + sdm/65536
+     * where nint,sdm are integers and 0 < nint, 0 <= sdm < 65536
+     * Scaling to fixed point and rounding:
+     *  vco_div = 65536*(nint + sdm/65536) = int( 0.5 + 65536 * vco_freq / (2 * pll_ref) )
+     *  vco_div = 65536*nint + sdm         = int( (pll_ref + 65536 * vco_freq) / (2 * pll_ref) )
+     */
 
-	vco_div = (pll_ref + 65536 * vco_freq) / (2 * pll_ref);
-	nint = (uint32_t) (vco_div / 65536);
-	sdm = (uint32_t) (vco_div % 65536);
+    vco_div = (pll_ref + 65536 * vco_freq) / (2 * pll_ref);
+    nint = (uint32_t) (vco_div / 65536);
+    sdm = (uint32_t) (vco_div % 65536);
 
-	if (nint < 13 ||
-	    (priv->rafael_chip == CHIP_R828D && nint > 127) ||
-	    (priv->rafael_chip != CHIP_R828D && nint > 76)) {
-		rtlsdr_printf("[R82XX] No valid PLL values for %u Hz!\n", freq);
-		return -1;
-	}
+    if (nint < 13 ||
+        (priv->rafael_chip == CHIP_R828D && nint > 127) ||
+        (priv->rafael_chip != CHIP_R828D && nint > 76)) {
+        rtlsdr_printf("[R82XX] No valid PLL values for %u Hz!\n", freq);
+        return -1;
+    }
 
-	ni = (nint - 13) / 4;
-	si = nint - 4 * ni - 13;
+    ni = (nint - 13) / 4;
+    si = nint - 4 * ni - 13;
 
-	rc = r82xx_write_reg(priv, 0x14, ni + (si << 6));
-	if (rc < 0)
-		return rc;
+    rc = r82xx_write_reg(priv, 0x14, ni + (si << 6));
+    if (rc < 0)
+        return rc;
 
-	/* pw_sdm */
-	if (sdm == 0)
-		val = 0x08;
-	else
-		val = 0x00;
+    /* pw_sdm */
+    if (sdm == 0)
+        val = 0x08;
+    else
+        val = 0x00;
 
     if (priv->disable_dither)
         val |= 0x10;
 
-	rc = r82xx_write_reg_mask(priv, 0x12, val, 0x18);
-	if (rc < 0)
-		return rc;
+    rc = r82xx_write_reg_mask(priv, 0x12, val, 0x18);
+    if (rc < 0)
+        return rc;
 
-	rc = r82xx_write_reg(priv, 0x16, sdm >> 8);
-	if (rc < 0)
-		return rc;
-	rc = r82xx_write_reg(priv, 0x15, sdm & 0xff);
-	if (rc < 0)
-		return rc;
+    rc = r82xx_write_reg(priv, 0x16, sdm >> 8);
+    if (rc < 0)
+        return rc;
+    rc = r82xx_write_reg(priv, 0x15, sdm & 0xff);
+    if (rc < 0)
+        return rc;
 
-	for (i = 0; i < 2; i++) {
-		/* Check if PLL has locked */
+    for (i = 0; i < 2; i++) {
+        /* Check if PLL has locked */
         reg2 = 0;
-		rc = r82xx_read_reg(priv, 0x02, &reg2);
-		if (rc < 0)
-			return rc;
-		if (reg2 & 0x40)
-			break;
+        rc = r82xx_read_reg(priv, 0x02, &reg2);
+        if (rc < 0)
+            return rc;
+        if (reg2 & 0x40)
+            break;
 
-		/* Didn't lock. Increase VCO current */
-		rc = r82xx_write_reg_mask(priv, 0x12, 0x60, 0xe0);
-		if (rc < 0)
-			return rc;
-	}
+        /* Didn't lock. Increase VCO current */
+        rc = r82xx_write_reg_mask(priv, 0x12, 0x60, 0xe0);
+        if (rc < 0)
+            return rc;
+    }
 
-	if (!(reg2 & 0x40)) {
-		rtlsdr_printf("[r82xx] Failed to get PLL lock at %u Hz\n", freq);
-		return -42;
-	}
+    if (!(reg2 & 0x40)) {
+        rtlsdr_printf("[r82xx] Failed to get PLL lock at %u Hz\n", freq);
+        return -42;
+    }
 
-	/* set pll autotune = 8kHz */
-	rc = r82xx_write_reg_mask(priv, 0x1a, 0x08, 0x08);
+    /* set pll autotune = 8kHz */
+    rc = r82xx_write_reg_mask(priv, 0x1a, 0x08, 0x08);
 
-	return rc;
+    return rc;
 }
 
 #if 0
@@ -543,16 +542,20 @@ int r82xx_read_gain(struct r82xx_priv *priv, unsigned int *gain0, unsigned int *
  * http://steve-m.de/projects/rtl-sdr/gain_measurement/r820t/
  */
 
+const unsigned int r82xx_lna_gain_steps[]  = {
+    0, 10, 13, 40, 38, 13, 31, 22, 26, 31, 26, 14, 19, 5, 35, 13
+};
+
 const unsigned int r82xx_lna_gain_values[16] = {
     0, 2, 5, 13, 20, 23, 29, 33, 39, 45, 50, 53, 57, 58, 65, 67
 };
 
 /*
  *  According to the info in the register file, this should *actually* look like:
- *  0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150
+ *  0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30
  */
 unsigned int r82xx_mixer_gain_values[16] = {
-    0, 5, 15, 25, 44, 53, 63, 88, 105, 115, 123, 139, 152, 158, 161, 152
+    0, 1, 3, 5, 8, 11, 12, 17, 21, 23, 25, 28, 30, 32, 32, 31
 };
 
 int r82xx_set_agc_params(struct r82xx_priv *priv, uint8_t lna_agc, uint8_t mixer_agc, uint8_t agc_rate)
@@ -565,7 +568,7 @@ int r82xx_set_agc_params(struct r82xx_priv *priv, uint8_t lna_agc, uint8_t mixer
         return rc;
 
     /* Mixer */
-	rc = r82xx_write_reg(priv, 0x0e, mixer_agc);
+    rc = r82xx_write_reg(priv, 0x0e, mixer_agc);
     if (rc < 0)
         return rc;
 
@@ -573,36 +576,31 @@ int r82xx_set_agc_params(struct r82xx_priv *priv, uint8_t lna_agc, uint8_t mixer
      * Settings: 0x30 -> 250hz, 0x20 -> 60hz,
      *           0x10 -> 16hz(?), 0x00 -> 1kHz(?)
      */
-	rc = r82xx_write_reg_mask(priv, 0x1a, agc_rate << 4, 0x30);
+    rc = r82xx_write_reg_mask(priv, 0x1a, agc_rate << 4, 0x30);
     return rc;
 }
 
 int r82xx_enable_manual_gain(struct r82xx_priv *priv, unsigned int set_manual_gain)
 {
-    int rc;
+    int rc = 0;
     uint8_t lna_manual = (set_manual_gain ? 0x10 : 0x00);
     uint8_t mixer_manual = (set_manual_gain ? 0x00 : 0x10);
 
     /* LNA */
-    rc = r82xx_write_reg_mask(priv, 0x05, lna_manual, 0x10);
-    if (rc < 0)
-        return rc;
+    rc |= r82xx_write_reg_mask(priv, 0x05, lna_manual, 0x10);
 
     /* Mixer */
-    rc = r82xx_write_reg_mask(priv, 0x07, mixer_manual, 0x10);
-    if (rc < 0)
-        return rc;
-
-    return 0;
+    rc |= r82xx_write_reg_mask(priv, 0x07, mixer_manual, 0x10);
+    return rc;
 }
 
 int r82xx_set_lna_gain(struct r82xx_priv *priv, unsigned int gain)
 {
-    int i;
+    unsigned int i;
     uint8_t lna_index = 0;
 
-    for (i = 0; i < 16; i++) {
-        if (gain <= r82xx_lna_gain_values[lna_index])
+    for (i = 0; i < 15; i++) {
+        if (r82xx_lna_gain_values[lna_index] >= gain)
             break;
         lna_index++;
     }
@@ -618,6 +616,7 @@ int r82xx_set_mixer_gain(struct r82xx_priv *priv, unsigned int gain)
     /* set Mixer gain */
     return r82xx_write_reg_mask(priv, 0x07, mix_index, 0x0f);
 }
+
 
 int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 {
@@ -646,8 +645,8 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
     }
 
 err:
-	if (rc < 0)
-		rtlsdr_printf("r82xx_set_freq: failed=%d\n", rc);
+    if (rc < 0)
+        rtlsdr_printf("r82xx_set_freq: failed=%d\n", rc);
     return rc;
 }
 
@@ -657,30 +656,30 @@ err:
 
 int r82xx_standby(struct r82xx_priv *priv)
 {
-	int rc;
+    int rc;
 
     /* If device was not initialized yet, don't need to standby */
     /* Why on *earth* are you calling r82xx_standby() then? */
     /* if (!priv->init_done)
         return 0; */
 
-	priv->reg_cache = 0;
-	/* rc = r82xx_write_reg(priv, 0x06, 0xb1); */ // LNA Power Detector: Off, LNA Power Detector (Narrowband): Off,
+    priv->reg_cache = 0;
+    /* rc = r82xx_write_reg(priv, 0x06, 0xb1); */ // LNA Power Detector: Off, LNA Power Detector (Narrowband): Off,
                                                   // Cable2 LNA Off, LNA Power: Almost Max (Fixing this to min, below)
-	rc = r82xx_write_reg(priv, 0x06, 0xb7); // LNA Power Detector: Off, LNA Power Detector (Narrowband): Off,
+    rc = r82xx_write_reg(priv, 0x06, 0xb7); // LNA Power Detector: Off, LNA Power Detector (Narrowband): Off,
                                             // Cable2 LNA Off, LNA Power: Min
-	rc |= r82xx_write_reg(priv, 0x05, 0x03); // Loop-Through On, Cable1 LNA Off, Air-In LNA Off, LNA Gain Mode: Auto
-	rc |= r82xx_write_reg(priv, 0x07, 0x3a); // Image Negative, Mixer Power Off, Mixer Gain Mode: Auto
-	rc |= r82xx_write_reg(priv, 0x0a, 0x36); // Channel Filter: Set Values to Default, Turn Off
-	rc |= r82xx_write_reg(priv, 0x0f, 0x68); // LDO Power Off, Clk Output Off, Ring PLL Refclock Off,
+    rc |= r82xx_write_reg(priv, 0x05, 0x03); // Loop-Through On, Cable1 LNA Off, Air-In LNA Off, LNA Gain Mode: Auto
+    rc |= r82xx_write_reg(priv, 0x07, 0x3a); // Image Negative, Mixer Power Off, Mixer Gain Mode: Auto
+    rc |= r82xx_write_reg(priv, 0x0a, 0x36); // Channel Filter: Set Values to Default, Turn Off
+    rc |= r82xx_write_reg(priv, 0x0f, 0x68); // LDO Power Off, Clk Output Off, Ring PLL Refclock Off,
                                              // Ch_Filt Calibration Clk Off, Internal AGC Clock ON(!)
-	rc |= r82xx_write_reg(priv, 0x11, 0x03);
-	rc |= r82xx_write_reg(priv, 0x17, 0xf4); // PLL digital low drop out regulator supply current Off, Prescale Current 150uA,
+    rc |= r82xx_write_reg(priv, 0x11, 0x03);
+    rc |= r82xx_write_reg(priv, 0x17, 0xf4); // PLL digital low drop out regulator supply current Off, Prescale Current 150uA,
                                              // Open-Drain: High-Z, IQ Generator: Div_Mid, Buf_Min, Power Off
-	rc |= r82xx_write_reg(priv, 0x19, 0x0c); // RingPLL VCO Power Max
+    rc |= r82xx_write_reg(priv, 0x19, 0x0c); // RingPLL VCO Power Max
 
-	priv->reg_cache = 1;
-	return rc;
+    priv->reg_cache = 1;
+    return rc;
 }
 
 /*
@@ -689,44 +688,44 @@ int r82xx_standby(struct r82xx_priv *priv)
 
 int r82xx_init(struct r82xx_priv *priv)
 {
-	int rc;
+    int rc;
 
-	/* TODO: R828D might need r82xx_xtal_check() */
-	priv->xtal_cap_sel = XTAL_HIGH_CAP_0P;
+    /* TODO: R828D might need r82xx_xtal_check() */
+    priv->xtal_cap_sel = XTAL_HIGH_CAP_0P;
 
-	/* Initialize registers */
-	priv->reg_cache = 0;
-	rc = r82xx_write(priv, 0x05, r82xx_init_array, sizeof(r82xx_init_array));
+    /* Initialize registers */
+    priv->reg_cache = 0;
+    rc = r82xx_write(priv, 0x05, r82xx_init_array, sizeof(r82xx_init_array));
 
     /* Initialize the shadow registers */
     memcpy(priv->regs, r82xx_init_array, sizeof(r82xx_init_array));
 
     /* Init Flag & Xtal_check Result, version */
     rc |= r82xx_write_reg_mask(priv, 0x13, VER_NUM, 0x3f);
-	priv->input = 0x00;
+    priv->input = 0x00;
 
     //r82xx_filter_calibrate(priv);
     priv->fil_cal_code = 0x00; /* seriously? */
 
-	/* r82xx_set_bw will always be called by rtlsdr_set_sample_rate,
-	   so there's no need to call r82xx_set_if_filter here */
-	priv->reg_cache = 1;
+    /* r82xx_set_bw will always be called by rtlsdr_set_sample_rate,
+       so there's no need to call r82xx_set_if_filter here */
+    priv->reg_cache = 1;
 
     /* lna   vth 0.84, vtl 0.64 */
     rc |= r82xx_write_reg(priv, 0x0d, 0x73);
     /* mixer vth 1.04, vtl 0.84 */
     rc |= r82xx_write_reg(priv, 0x0e, 0x73);
 
-	if (rc < 0)
-		rtlsdr_printf("r82xx_init: failed=%d\n", rc);
-	return rc;
+    if (rc < 0)
+        rtlsdr_printf("r82xx_init: failed=%d\n", rc);
+    return rc;
 }
 
 #if 0
 /* Not used, for now */
 static int r82xx_gpio(struct r82xx_priv *priv, int enable)
 {
-	return r82xx_write_reg_mask(priv, 0x0f, enable ? 1 : 0, 0x01);
+    return r82xx_write_reg_mask(priv, 0x0f, enable ? 1 : 0, 0x01);
 }
 #endif
 
