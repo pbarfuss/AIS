@@ -5,6 +5,7 @@
 #include <math.h>
 #include <unistd.h>
 #include "rtl-ais.h"
+#define INC 16
 float fast_atanf(float x);
 
 static float rcos_filter_coeffs[84] = {
@@ -43,7 +44,7 @@ static float rrc_filter_run_buf(asynchronous_msk_demod_t *f, float *in, float *o
 		if (in[id] > maxval)
 			maxval = in[id];
 
-		out[id++] = INVGAIN*scalarproduct_float_c(&f->rrc_filter_buffer[filtidx - RRC_COEFFS_L], rcos_filter_coeffs, 84);
+		out[id++] = INVGAIN*scalarproduct_float_sse(&f->rrc_filter_buffer[filtidx - RRC_COEFFS_L], rcos_filter_coeffs, 84);
 
 		/* the buffer is much smaller than the incoming chunks */
 		if (filtidx == RRC_BUFLEN-1) {
@@ -61,11 +62,9 @@ static float rrc_filter_run_buf(asynchronous_msk_demod_t *f, float *in, float *o
 
 void putbit(asynchronous_msk_demod_t *ch, unsigned char v)
 {
-    unsigned char b = 0;
     ch->outbits <<= 1;
     if(v>0) {
         ch->outbits |= 1;
-        b = 1;
     }
     if (ch->nbits >= 8) {
 	    /* feed to the decoder */
@@ -118,7 +117,7 @@ float polar_disc_fast(FFTComplex a, FFTComplex b)
     return (z * 0.31831f);
 }
 
-void async_msk_decode(asynchronous_msk_demod_t *async_msk, FFTComplex *inbuf, unsigned int len)
+void async_msk_decode(asynchronous_msk_demod_t *async_msk, FFTComplex *inbuf, unsigned int inbuf_len)
 {
 	float out, maxval = 0.0f;
     unsigned int i;
@@ -126,14 +125,14 @@ void async_msk_decode(asynchronous_msk_demod_t *async_msk, FFTComplex *inbuf, un
 	unsigned char b;
 	float filtered[4096];
 
-    async_msk->demod[0] = polar_disc_fast(inbuf[0], async_msk->prev_fm);
+    async_msk->fm_demod[0] = polar_disc_fast(inbuf[0], async_msk->prev_fm);
     for (i = 1; i < inbuf_len; i++) {
-        async_msk->demod[i] = polar_disc_fast(inbuf[i], inbuf[i-1]);
+        async_msk->fm_demod[i] = polar_disc_fast(inbuf[i], inbuf[i-1]);
     }
     async_msk->prev_fm = inbuf[inbuf_len - 1];
 
-	maxval = rrc_filter_run_buf(async_msk, buf, filtered, len);
-	for (i = 0; i < len; i++) {
+	maxval = rrc_filter_run_buf(async_msk, async_msk->fm_demod, filtered, inbuf_len);
+	for (i = 0; i < inbuf_len; i++) {
 		out = filtered[i];
 		curr = (out > 0);
 
@@ -152,7 +151,7 @@ void async_msk_decode(asynchronous_msk_demod_t *async_msk, FFTComplex *inbuf, un
 			bit = (out > 0);
 			/* nrzi decode */
 			b = !(bit ^ async_msk->lastbit);
-            putbut(async_mask, b);
+            putbit(async_msk, b);
 			async_msk->lastbit = bit;
 			async_msk->pll &= 0xffff;
 		}

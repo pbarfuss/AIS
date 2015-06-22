@@ -70,6 +70,13 @@ struct ais_state
 	struct demod_state_t decoder2;
 };
 
+float scalarproduct_float_c(float *v1, float *v2, unsigned int len);
+float scalarproduct_float_sse(float *v1, float *v2, unsigned int len);
+float scalarproduct_float_neon(float *v1, float *v2, unsigned int len);
+FFTComplex scalarproduct_iq_c(FFTComplex *v1, float *v2, unsigned int len);
+FFTComplex scalarproduct_iq_sse(FFTComplex *v1, float *v2, unsigned int len);
+FFTComplex scalarproduct_iq_neon(FFTComplex *v1, float *v2, unsigned int len);
+
 void ais_bytearray_append(uint8_t v0);
 void init_msk_demod(msk_t *ch, unsigned int samplerate);
 void demod_msk(msk_t *ch, FFTComplex *input, unsigned int ninput);
