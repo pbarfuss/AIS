@@ -41,10 +41,10 @@ struct reg_field {
 
 uint32_t unsigned_delta(uint32_t a, uint32_t b)
 {
-	if (a > b)
-		return a - b;
-	else
-		return b - a;
+    if (a > b)
+        return a - b;
+    else
+        return b - a;
 }
 
 /***********************************************************************
@@ -58,11 +58,11 @@ uint32_t unsigned_delta(uint32_t a, uint32_t b)
  */
 static int e4k_reg_write(struct e4k_state *e4k, uint8_t reg, uint8_t val)
 {
-	uint8_t data[2];
-	data[0] = reg;
-	data[1] = val;
+    uint8_t data[2];
+    data[0] = reg;
+    data[1] = val;
 
-	return rtlsdr_i2c_write_fn(e4k->rtl_dev, E4K_I2C_ADDR, data, 2);
+    return rtlsdr_i2c_write_fn(e4k->rtl_dev, E4K_I2C_ADDR, data, 2);
 }
 
 /*! \brief Read a register of the tuner chip
@@ -72,15 +72,15 @@ static int e4k_reg_write(struct e4k_state *e4k, uint8_t reg, uint8_t val)
  */
 static int e4k_reg_read(struct e4k_state *e4k, uint8_t reg)
 {
-	uint8_t data = reg;
+    uint8_t data = reg;
 
-	if (rtlsdr_i2c_write_fn(e4k->rtl_dev, E4K_I2C_ADDR, &data, 1) < 1)
-		return -1;
+    if (rtlsdr_i2c_write_fn(e4k->rtl_dev, E4K_I2C_ADDR, &data, 1) < 1)
+        return -1;
 
-	if (rtlsdr_i2c_read_fn(e4k->rtl_dev, E4K_I2C_ADDR, &data, 1) < 1)
-		return -1;
+    if (rtlsdr_i2c_read_fn(e4k->rtl_dev, E4K_I2C_ADDR, &data, 1) < 1)
+        return -1;
 
-	return data;
+    return data;
 }
 
 /*! \brief Set or clear some (masked) bits inside a register
@@ -90,61 +90,59 @@ static int e4k_reg_read(struct e4k_state *e4k, uint8_t reg)
  *  \param[in] val data value to be written to register
  *  \returns 0 on success, negative in case of error
  */
-static int e4k_reg_set_mask(struct e4k_state *e4k, uint8_t reg, uint8_t mask, uint8_t val)
+static int e4k_reg_set_mask(struct e4k_state *e4k, uint8_t reg, uint8_t val, uint8_t mask)
 {
-	uint8_t tmp = e4k_reg_read(e4k, reg);
-
-	if ((tmp & mask) == val)
-		return 0;
-
-	return e4k_reg_write(e4k, reg, (tmp & ~mask) | (val & mask));
+    uint8_t tmp = e4k_reg_read(e4k, reg);
+    if ((tmp & mask) == val)
+        return 0;
+    return e4k_reg_write(e4k, reg, (tmp & ~mask) | (val & mask));
 }
 
 /***********************************************************************
  * Filter Control */
 
 static const uint32_t rf_filt_center_uhf[] = {
-	MHZ(360), MHZ(380), MHZ(405), MHZ(425),
-	MHZ(450), MHZ(475), MHZ(505), MHZ(540),
-	MHZ(575), MHZ(615), MHZ(670), MHZ(720),
-	MHZ(760), MHZ(840), MHZ(890), MHZ(970)
+    MHZ(360), MHZ(380), MHZ(405), MHZ(425),
+    MHZ(450), MHZ(475), MHZ(505), MHZ(540),
+    MHZ(575), MHZ(615), MHZ(670), MHZ(720),
+    MHZ(760), MHZ(840), MHZ(890), MHZ(970)
 };
 
 static const uint32_t rf_filt_center_l[] = {
-	MHZ(1300), MHZ(1320), MHZ(1360), MHZ(1410),
-	MHZ(1445), MHZ(1460), MHZ(1490), MHZ(1530),
-	MHZ(1560), MHZ(1590), MHZ(1640), MHZ(1660),
-	MHZ(1680), MHZ(1700), MHZ(1720), MHZ(1750)
+    MHZ(1300), MHZ(1320), MHZ(1360), MHZ(1410),
+    MHZ(1445), MHZ(1460), MHZ(1490), MHZ(1530),
+    MHZ(1560), MHZ(1590), MHZ(1640), MHZ(1660),
+    MHZ(1680), MHZ(1700), MHZ(1720), MHZ(1750)
 };
 
 static int closest_arr_idx(const uint32_t *arr, unsigned int arr_size, uint32_t freq)
 {
-	unsigned int i, bi = 0;
-	uint32_t best_delta = 0xffffffff;
+    unsigned int i, bi = 0;
+    uint32_t best_delta = 0xffffffff;
 
-	/* iterate over the array containing a list of the center
-	 * frequencies, selecting the closest one */
-	for (i = 0; i < arr_size; i++) {
-		uint32_t delta = unsigned_delta(freq, arr[i]);
-		if (delta < best_delta) {
-			best_delta = delta;
-			bi = i;
-		}
-	}
+    /* iterate over the array containing a list of the center
+     * frequencies, selecting the closest one */
+    for (i = 0; i < arr_size; i++) {
+        uint32_t delta = unsigned_delta(freq, arr[i]);
+        if (delta < best_delta) {
+            best_delta = delta;
+            bi = i;
+        }
+    }
 
-	return bi;
+    return bi;
 }
 
 /* Mixer Filter */
 static uint32_t mix_filter_bw[] = {
-	27000, 27000, 27000, 27000, 27000, 27000, 27000, 27000,
-	4600, 4200, 3800, 3400, 3300, 2700, 2300, 1900
+    27000, 27000, 27000, 27000, 27000, 27000, 27000, 27000,
+    4600, 4200, 3800, 3400, 3300, 2700, 2300, 1900
 };
 
 /* IF RC Filter */
 static uint32_t ifrc_filter_bw[] = {
-	21400, 21000, 17600, 14700, 12400, 10600, 9000, 7700,
-	6400, 5300, 4400, 3400, 2600, 1800, 1200, 1000
+    21400, 21000, 17600, 14700, 12400, 10600, 9000, 7700,
+    6400, 5300, 4400, 3400, 2600, 1800, 1200, 1000
 };
 
 /*! \brief Set the filter band-width of any of the IF filters
@@ -155,7 +153,7 @@ static uint32_t ifrc_filter_bw[] = {
  */
 int e4k_if_filter_bw_set(struct e4k_state *e4k, uint8_t filter, uint32_t bandwidth)
 {
-	int bw_idx;
+    int bw_idx;
     uint32_t *if_filter_bw_tab;
     uint8_t shift;
 
@@ -164,13 +162,13 @@ int e4k_if_filter_bw_set(struct e4k_state *e4k, uint8_t filter, uint32_t bandwid
 
     if_filter_bw_tab = ((filter == E4K_IF_FILTER_RC) ? ifrc_filter_bw : mix_filter_bw);
     shift = ((filter == E4K_IF_FILTER_RC) ? 0 : 4);
-	bw_idx = closest_arr_idx(if_filter_bw_tab, 16, bandwidth);
-    return e4k_reg_set_mask(e4k, E4K_REG_FILT2, 0x0f << shift, bw_idx << shift);
+    bw_idx = closest_arr_idx(if_filter_bw_tab, 16, bandwidth);
+    return e4k_reg_set_mask(e4k, E4K_REG_FILT2, bw_idx << shift, 0x0f << shift);
 }
 
 int e4k_if_filter_bw_get(struct e4k_state *e4k, uint8_t filter)
 {
-	int rc;
+    int rc;
 
     if (filter > E4K_IF_FILTER_RC)
         return -1;
@@ -192,55 +190,55 @@ int e4k_if_filter_bw_get(struct e4k_state *e4k, uint8_t filter)
 /***********************************************************************
  * Frequency Control */
 
-#define E4K_PLL_Y		65536
+#define E4K_PLL_Y       65536
 
 #ifdef OUT_OF_SPEC
-#define E4K_FVCO_MIN_KHZ	2400000UL /* 2.4 GHz; min FLO is 2400/48 = 50MHz */
-#define E4K_FVCO_MAX_KHZ	4400000UL /* 4.4 GHz; max FLO is 4400/2  = 2200MHz  */
+#define E4K_FVCO_MIN_KHZ    2400000UL /* 2.4 GHz; min FLO is 2400/48 = 50MHz */
+#define E4K_FVCO_MAX_KHZ    4400000UL /* 4.4 GHz; max FLO is 4400/2  = 2200MHz  */
 #else
 /* NB: Datasheet values for RF input and LO ranges are 64 - 1700MHz.
  * The values below are from the slightly wider VCO ranges.
  */
-#define E4K_FVCO_MIN_KHZ	2600000UL /* 2.6 GHz; min FLO is 2600/48 = 54MHz */
-#define E4K_FVCO_MAX_KHZ	3900000UL /* 3.9 GHz; max FLO is 3900/2 = 1950MHz */
+#define E4K_FVCO_MIN_KHZ    2600000UL /* 2.6 GHz; min FLO is 2600/48 = 54MHz */
+#define E4K_FVCO_MAX_KHZ    3900000UL /* 3.9 GHz; max FLO is 3900/2 = 1950MHz */
 #endif
 
 struct pll_settings {
-	uint32_t freq;
-	uint8_t reg_synth7;
-	uint8_t mult;
+    uint32_t freq;
+    uint8_t reg_synth7;
+    uint8_t mult;
 };
 
 static const struct pll_settings pll_vars[] = {
-	{72400,	 (1 << 3) | 7,	48},
-	{81200,	 (1 << 3) | 6,	40},
-	{108300, (1 << 3) | 5,	32},
-	{162500, (1 << 3) | 4,	24},
-	{216600, (1 << 3) | 3,	16},
-	{325000, (0 << 3) | 4,	12},
-	{432000, (0 << 3) | 3,	 8},
-	{667000, (0 << 3) | 2,	 6},
-	{1200000,(0 << 3) | 1,	 4}
+    {72400,  (1 << 3) | 7,  48},
+    {81200,  (1 << 3) | 6,  40},
+    {108300, (1 << 3) | 5,  32},
+    {162500, (1 << 3) | 4,  24},
+    {216600, (1 << 3) | 3,  16},
+    {325000, (0 << 3) | 4,  12},
+    {432000, (0 << 3) | 3,   8},
+    {667000, (0 << 3) | 2,   6},
+    {1200000,(0 << 3) | 1,   4}
 };
 
 static int is_fosc_valid(uint32_t fosc)
 {
-	if (fosc < MHZ(16) || fosc > MHZ(30)) {
-		rtlsdr_printf("[E4K] Fosc %u invalid\n", fosc);
-		return 0;
-	}
+    if (fosc < MHZ(16) || fosc > MHZ(30)) {
+        rtlsdr_printf("[E4K] Fosc %u invalid\n", fosc);
+        return 0;
+    }
 
-	return 1;
+    return 1;
 }
 
 /*! \brief Determine if 3-phase mixing shall be used or not */
 static int use_3ph_mixing(uint32_t flo)
 {
-	/* this is a magic number somewhre between VHF and UHF */
-	if (flo < MHZ(350))
-		return 1;
+    /* this is a magic number somewhre between VHF and UHF */
+    if (flo < MHZ(350))
+        return 1;
 
-	return 0;
+    return 0;
 }
 
 /*! \brief High-level tuning API, just specify frquency
@@ -263,8 +261,8 @@ int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
     uint8_t bias = 3;
     int rc = 0;
 
-	if (!is_fosc_valid(fosc))
-		return 0;
+    if (!is_fosc_valid(fosc))
+        return 0;
 
     freq_khz = freq / 1000;
     fosc /= 1000;
@@ -310,11 +308,11 @@ int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
     e4k_reg_set_mask(e4k, 0x0e, 0x01, 0x01);
 
     /* set the band */
-    if (freq_khz < KHZ(140))
+    if (freq_khz < 140000)
         band = E4K_BAND_VHF2;
-    else if (freq_khz < KHZ(350))
+    else if (freq_khz < 350000)
         band = E4K_BAND_VHF3;
-    else if (freq_khz < KHZ(1135))
+    else if (freq_khz < 1135000)
         band = E4K_BAND_UHF;
     else
         band = E4K_BAND_L;
@@ -340,7 +338,7 @@ int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
     } else if (band == E4K_BAND_L) {
         filt1 = closest_arr_idx(rf_filt_center_l, 16, freq);
     }
-    e4k_reg_set_mask(e4k, 0x10, filt1, 0xF);
+    e4k_reg_set_mask(e4k, 0x10, 0x0F, filt1);
 
     /* check PLL lock */
     i = e4k_reg_read(e4k, 0x07);
@@ -374,56 +372,49 @@ int e4k_set_lna_gain(struct e4k_state *e4k, uint32_t gain)
     for(i = 0; i < 13; ++i) {
         uint32_t lna_gain = 5*i;
         if(lna_gain >= gain) {
-            return e4k_reg_set_mask(e4k, 0x14, 0xf, i+2);
+            break;
         }
     }
-    return -1;
+    return e4k_reg_set_mask(e4k, 0x14, i+2, 0x0f);
 }
 
 int e4k_set_mixer_gain(struct e4k_state *e4k, uint8_t value)
 {
     uint8_t bit = ((value > 0) ? 1 : 0);
-    return e4k_reg_set_mask(e4k, 0x15, 1, bit);
+    return e4k_reg_set_mask(e4k, 0x15, bit, 1);
 }
 
 int e4k_enable_manual_gain(struct e4k_state *e4k, uint8_t manual)
 {
-	if (manual) {
-		/* Set LNA mode to manual */
-		e4k_reg_set_mask(e4k, E4K_REG_AGC1, E4K_AGC1_MOD_MASK, E4K_AGC_MOD_SERIAL);
+    uint8_t lna_mode = (manual ? E4K_AGC1_MOD_LNA_SERIAL : E4K_AGC1_MOD_LNA_AUTON);
+    uint8_t mix_mode = (manual ? E4K_AGC7_MOD_MIX_GAIN_MANUAL : E4K_AGC7_MOD_MIX_GAIN_AUTO);
 
-		/* Set Mixer Gain Control to manual */
-		e4k_reg_set_mask(e4k, E4K_REG_AGC7, E4K_AGC7_MIX_GAIN_AUTO, 0);
-	} else {
-		/* Set LNA mode to auto */
-		e4k_reg_set_mask(e4k, E4K_REG_AGC1, E4K_AGC1_MOD_MASK, E4K_AGC_MOD_IF_SERIAL_LNA_AUTON);
+    /* Set LNA mode */
+    e4k_reg_set_mask(e4k, E4K_REG_AGC1, lna_mode, 0x0f);
 
-		/* Set Mixer Gain Control to auto */
-		e4k_reg_set_mask(e4k, E4K_REG_AGC7, E4K_AGC7_MIX_GAIN_AUTO, 1);
-	}
-
-	return 0;
+    /* Set Mixer mode */
+    e4k_reg_set_mask(e4k, E4K_REG_AGC7, mix_mode, 0x01);
+    return 0;
 }
 
 int e4k_read_gain(struct e4k_state *e4k, unsigned int *gain0, unsigned int *gain1)
 {
-    unsigned int rssi = e4k_reg_read(e4k, E4K_REG_AGC3);
+    int rssi = e4k_reg_read(e4k, E4K_REG_AGC3);
     unsigned int lna_gain = e4k_reg_read(e4k, E4K_REG_AGC1);
     unsigned int mixer_gain = (e4k_reg_read(e4k, E4K_REG_AGC7) & 1);
+
     lna_gain &= 0x0f;
     *gain0 = lna_gain;
     *gain1 = mixer_gain;
-    return (rssi - lna_gain);
+    return (rssi - (int)lna_gain);
 }
 
-int e4k_commonmode_set(struct e4k_state *e4k, int8_t value)
+int e4k_commonmode_set(struct e4k_state *e4k, uint8_t value)
 {
-	if(value < 0)
-		return -1;
-	else if(value > 7)
-		return -1;
+    if(value > 7)
+        return -1;
 
-	return e4k_reg_set_mask(e4k, E4K_REG_DC7, 7, value);
+    return e4k_reg_set_mask(e4k, E4K_REG_DC7, value, 7);
 }
 
 /***********************************************************************
@@ -469,8 +460,7 @@ int e4k_manual_dc_offset(struct e4k_state *e4k, uint8_t iofs, uint8_t qofs, uint
  */
 int e4k_standby(struct e4k_state *e4k, int enable)
 {
-	return e4k_reg_set_mask(e4k, E4K_REG_MASTER1, E4K_MASTER1_NORM_STBY,
-			 enable ? 0 : E4K_MASTER1_NORM_STBY);
+    return e4k_reg_set_mask(e4k, E4K_REG_MASTER1, enable ? 0 : E4K_MASTER1_NORM_STBY, E4K_MASTER1_NORM_STBY);
 }
 
 /***********************************************************************
@@ -478,14 +468,14 @@ int e4k_standby(struct e4k_state *e4k, int enable)
 
 static void magic_init(struct e4k_state *e4k)
 {
-	e4k_reg_write(e4k, 0x7e, 0x01);
-	e4k_reg_write(e4k, 0x7f, 0xfe);
-	e4k_reg_write(e4k, 0x82, 0x00); /* ? not in data sheet */
-	e4k_reg_write(e4k, 0x86, 0x50);	/* polarity A */
-	e4k_reg_write(e4k, 0x87, 0x20); /* configure mixer */
-	e4k_reg_write(e4k, 0x88, 0x01); /* configure mixer */
-	e4k_reg_write(e4k, 0x9f, 0x7f); /* configure LNA */
-	e4k_reg_write(e4k, 0xa0, 0x07); /* configure LNA */
+    e4k_reg_write(e4k, 0x7e, 0x01);
+    e4k_reg_write(e4k, 0x7f, 0xfe);
+    e4k_reg_write(e4k, 0x82, 0x00); /* ? not in data sheet */
+    e4k_reg_write(e4k, 0x86, 0x50); /* polarity A */
+    e4k_reg_write(e4k, 0x87, 0x20); /* configure mixer */
+    e4k_reg_write(e4k, 0x88, 0x01); /* configure mixer */
+    e4k_reg_write(e4k, 0x9f, 0x7f); /* configure LNA */
+    e4k_reg_write(e4k, 0xa0, 0x07); /* configure LNA */
 }
 
 /*! \brief Initialize the E4K tuner
@@ -494,62 +484,56 @@ int e4k_init(struct e4k_state *e4k)
 {
     uint8_t offs_i, offs_q, range;
 
-	/* make a dummy i2c read or write command, will not be ACKed! */
-	e4k_reg_read(e4k, 0);
+    /* make a dummy i2c read or write command, will not be ACKed! */
+    e4k_reg_read(e4k, 0);
 
-	/* Make sure we reset everything and clear POR indicator */
-	e4k_reg_write(e4k, E4K_REG_MASTER1,
-		E4K_MASTER1_RESET |
-		E4K_MASTER1_NORM_STBY |
-		E4K_MASTER1_POR_DET
-	);
+    /* Make sure we reset everything and clear POR indicator */
+    e4k_reg_write(e4k, E4K_REG_MASTER1,
+        E4K_MASTER1_RESET |
+        E4K_MASTER1_NORM_STBY |
+        E4K_MASTER1_POR_DET
+    );
 
-	/* Configure clock input */
-	e4k_reg_write(e4k, E4K_REG_CLK_INP, 0x00);
+    /* Configure clock input */
+    e4k_reg_write(e4k, E4K_REG_CLK_INP, 0x00);
 
-	/* Disable clock output */
-	e4k_reg_write(e4k, E4K_REG_REF_CLK, 0x00);
-	e4k_reg_write(e4k, E4K_REG_CLKOUT_PWDN, 0x96);
+    /* Disable clock output */
+    e4k_reg_write(e4k, E4K_REG_REF_CLK, 0x00);
+    e4k_reg_write(e4k, E4K_REG_CLKOUT_PWDN, 0x96);
 
-	/* Write some magic values into registers */
-	magic_init(e4k);
-#if 0
-	/* Set common mode voltage a bit higher for more margin 850 mv */
-	e4k_commonmode_set(e4k, 4);
+    /* Write some magic values into registers */
+    magic_init(e4k);
 
-	/* Initialize DC offset lookup tables */
-	e4k_dc_offset_gen_table(e4k);
-#endif
-	/* Enable time variant DC correction */
-	e4k_reg_write(e4k, E4K_REG_DCTIME1, 0x01);
-	e4k_reg_write(e4k, E4K_REG_DCTIME2, 0x01);
+    /* Enable time variant DC correction */
+    e4k_reg_write(e4k, E4K_REG_DCTIME1, 0x01);
+    e4k_reg_write(e4k, E4K_REG_DCTIME2, 0x01);
 
-	/* Set LNA/Mixer gain control mode to manual */
-	e4k_reg_write(e4k, E4K_REG_AGC4, 0x10); /* High threshold */
-	e4k_reg_write(e4k, E4K_REG_AGC5, 0x04);	/* Low threshold */
-	e4k_reg_write(e4k, E4K_REG_AGC6, 0x1a);	/* LNA calib + loop rate */
-	e4k_enable_manual_gain(e4k, 1);
+    /* Set LNA/Mixer gain control mode to manual */
+    e4k_reg_write(e4k, E4K_REG_AGC4, 0x10); /* High threshold */
+    e4k_reg_write(e4k, E4K_REG_AGC5, 0x04); /* Low threshold */
+    e4k_reg_write(e4k, E4K_REG_AGC6, 0x1a); /* LNA calib + loop rate */
+    e4k_enable_manual_gain(e4k, 1);
 
     /* Disable LNA gain enhancement */
-	e4k_reg_set_mask(e4k, E4K_REG_AGC11, 0x7, 0);
+    e4k_reg_set_mask(e4k, E4K_REG_AGC11, 0, 0x7);
 
-	/* Use auto-gain as default */
-	e4k_enable_manual_gain(e4k, 0);
+    /* Use auto-gain as default */
+    e4k_enable_manual_gain(e4k, 0);
 
-	/* Set the most narrow filter we can possibly use
+    /* Set the most narrow filter we can possibly use
      * whoa there, let's not get absurd with the RC filter.
      * approximately slightly-more-than-doubled it so I now actually get most of a raw IQ dump @ 2.4MHz samplerate
      */
-	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_MIX, 1900);
-	e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_RC, 2600);
+    e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_MIX, 1900);
+    e4k_if_filter_bw_set(e4k, E4K_IF_FILTER_RC, 2600);
     e4k_reg_set_mask(e4k, 0x12, 0x20, 0x20);
 
     /* perform DC offset calibration */
     e4k_dc_offset_calibrate(e4k, &offs_i, &offs_q, &range);
 
-	/* Disable DC LUT */
-	e4k_reg_set_mask(e4k, 0x2d, 0x03, 0);
+    /* Disable DC offset LUT */
+    e4k_reg_set_mask(e4k, 0x2d, 0, 0x03);
 
-	return 0;
+    return 0;
 }
 

@@ -117,32 +117,22 @@ enum e4k_reg {
 #define E4K_AGC1_LNA_UPDATE	(1 << 5)
 #define E4K_AGC1_LNA_G_LOW	(1 << 6)
 #define E4K_AGC1_LNA_G_HIGH	(1 << 7)
-
 #define E4K_AGC6_LNA_CAL_REQ	(1 << 4)
-
-#define E4K_AGC7_MIX_GAIN_AUTO	(1 << 0)
+#define E4K_AGC1_MOD_LNA_SERIAL 0x0
+#define E4K_AGC1_MOD_LNA_PWM 0x4
+#define E4K_AGC1_MOD_LNA_AUTON   0x9
+#define E4K_AGC1_MOD_LNA_SUPERV 0xa
+#define E4K_AGC1_MOD_MASK	0xF
+#define E4K_AGC7_MOD_MIX_GAIN_MANUAL 0x0
+#define E4K_AGC7_MOD_MIX_GAIN_AUTO 0x1
 #define E4K_AGC7_GAIN_STEP_5dB	(1 << 5)
 
-#define E4K_AGC8_SENS_LIN_AUTO	(1 << 0)
-
 #define E4K_DC1_CAL_REQ		(1 << 0)
-
-#define E4K_DC5_I_LUT_EN	(1 << 0)
-#define E4K_DC5_Q_LUT_EN	(1 << 1)
 #define E4K_DC5_RANGE_DET_EN	(1 << 2)
 #define E4K_DC5_RANGE_EN	(1 << 3)
 #define E4K_DC5_TIMEVAR_EN	(1 << 4)
-
 #define E4K_CLKOUT_DISABLE	0x96
-
 #define E4K_CHFCALIB_CMD	(1 << 0)
-
-#define E4K_AGC1_MOD_MASK	0xF
-
-#define E4K_AGC_MOD_SERIAL 0x0
-#define E4K_AGC_MOD_IF_SERIAL_LNA_PWM 0x4
-#define E4K_AGC_MOD_IF_SERIAL_LNA_AUTON	0x9
-#define E4K_AGC_MOD_IF_SERIAL_LNA_SUPERV 0xa
 
 enum e4k_band {
 	E4K_BAND_VHF2	= 0,
@@ -165,7 +155,7 @@ int e4k_init(struct e4k_state *e4k);
 int e4k_standby(struct e4k_state *e4k, int enable);
 int e4k_if_gain_set(struct e4k_state *e4k, uint8_t stage, int8_t value);
 int e4k_read_gain(struct e4k_state *e4k, unsigned int *gain0, unsigned int *gain1);
-int e4k_commonmode_set(struct e4k_state *e4k, int8_t value);
+int e4k_commonmode_set(struct e4k_state *e4k, uint8_t value);
 int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq);
 int e4k_if_filter_bw_set(struct e4k_state *e4k, uint8_t filter, uint32_t bandwidth);
 int e4k_if_filter_bw_get(struct e4k_state *e4k, uint8_t filter);
