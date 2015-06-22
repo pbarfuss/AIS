@@ -739,115 +739,6 @@ void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 	}
 }
 
-#ifdef DEBUG_NMEA
-#define NMEA_DBG(x) x
-#else
-#define NMEA_DBG(x)
-#endif
-
-void protodec_generate_nmea(struct demod_state_t *d, unsigned int bufferlen, unsigned int fillbits, time_t received_t)
-{
-	//6bits to nmea-ascii. One sentence len max 82char
-	//inc. head + tail.This makes inside datamax 62char multipart, 62 single
-	unsigned int senlen = 61; //this is normally not needed.For testing only. May be fixed number
-    unsigned int k, pos = 0, m = 0, serbuffer_l;
-	int letter;
-	unsigned char sentences, sentencenum, nmeachk;
-
-	if (bufferlen <= (senlen * 6)) {
-		sentences = 1;
-	} else {
-		sentences = bufferlen / (senlen * 6);
-		//sentences , if overflow put one more
-		if (bufferlen % (senlen * 6) != 0)
-			sentences++;
-	};
-	NMEA_DBG(printf("NMEA: %d sentences with max data of %d ascii chrs\n", sentences, senlen));
-	sentencenum = 0;
-	do {
-		k = 13;		//leave room for nmea header
-		while (k < senlen + 13 && bufferlen > pos) {
-			letter = protodec_henten(pos, 6, d->rbuffer);
-			// 6bit-to-ascii conversion by IEC
-			if (letter < 40)
-				letter = letter + 48;
-			else
-				letter = letter + 56;
-			d->nmea_buffer[k] = letter;
-			pos += 6;
-			k++;
-		}
-		NMEA_DBG(printf("NMEA: Drop from loop with k:%d pos:%d senlen:%d bufferlen\n",
-			            k, pos, senlen, bufferlen));
-		//set nmea trailer with 00 checksum (calculate later)
-		d->nmea_buffer[k] = 44;
-		d->nmea_buffer[k + 1] = 48;
-		d->nmea_buffer[k + 2] = 42;
-		d->nmea_buffer[k + 3] = 48;
-		d->nmea_buffer[k + 4] = 48;
-		d->nmea_buffer[k + 5] = 0;
-		sentencenum++;
-
-		// printout one frame starts here
-		//AIVDM,x,x,,, - header comes here first
-
-		d->nmea_buffer[0] = 65;
-		d->nmea_buffer[1] = 73;
-		d->nmea_buffer[2] = 86;
-		d->nmea_buffer[3] = 68;
-		d->nmea_buffer[4] = 77;
-		d->nmea_buffer[5] = 44;
-		d->nmea_buffer[6] = 48 + sentences;
-		d->nmea_buffer[7] = 44;
-		d->nmea_buffer[8] = 48 + sentencenum;
-		d->nmea_buffer[9] = 44;
-
-		//if multipart message it needs sequential id number
-		if (sentences > 1) {
-			NMEA_DBG(printf("NMEA: It is multipart (%d/%d), add sequence number (%d) to header\n",
-				            sentences, sentencenum, d->seqnr));
-			d->nmea_buffer[10] = d->seqnr + 48;
-			d->nmea_buffer[11] = 44;
-			d->nmea_buffer[12] = 44;
-			//and if the last of multipart we need to show fillbits at trailer
-			if (sentencenum == sentences) {
-				NMEA_DBG(printf("NMEA: It is last of multipart (%d/%d), add fillbits (%d) to trailer\n",
-					            sentences, sentencenum, fillbits));
-				d->nmea_buffer[k + 1] = 48 + fillbits;
-			}
-		} else {	//else put channel A & no seqnr to keep equal lenght (foo!)
-			d->nmea_buffer[10] = 44;
-			d->nmea_buffer[11] = 65;
-			d->nmea_buffer[12] = 44;
-		}
-
-		//strcpy(nmea,"!AIVDM,1,1,,,");
-		//calculate xor checksum in hex for nmea[0] until nmea[m]='*'(42)
-		nmeachk = d->nmea_buffer[0];
-		while (d->nmea_buffer[m] != 42) {	//!="*"
-			nmeachk = nmeachk ^ d->nmea_buffer[m];
-			m++;
-		}
-
-		// convert calculated checksum to 2 digit hex there are 00 as base
-		// so if only 1 digit put it to later position to get 0-header 01,02...
-		if (nmeachk <= 0x0F) {
-			d->nmea_buffer[k + 4] = hex[nmeachk & 0x0f];
-		} else {
-			d->nmea_buffer[k + 3] = hex[((nmeachk >> 4) & 0x0f)];
-			d->nmea_buffer[k + 4] = hex[((nmeachk >> 0) & 0x0f)];
-		}
-		//In final. Add header "!" and trailer <lf>
-		// here it could be sent to /dev/ttySx
-        d->nmea_buffer[k + 5] = '\n';
-        d->nmea_buffer[k + 6] = '\0';
-		serbuffer_l = strlen(d->nmea_buffer);
-        if (d->nmea_out_fd != -1)
-            write(d->nmea_out_fd, d->nmea_buffer, serbuffer_l);
-		NMEA_DBG(printf("NMEA: End of nmea->ascii-loop with sentences:%d sentencenum:%d\n", sentences, sentencenum));
-	} while (sentencenum < sentences);
-}
-
 void ais_protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 {
 	unsigned char type = protodec_henten(0, 6, d->rbuffer);
@@ -871,8 +762,10 @@ void ais_protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 
 	DBG(printf(" fixed Bufferlen: %d with %d fillbits\n", bufferlen, fillbits));
 
+#if 0
 	/* generate an NMEA string out of the binary packet */
 	protodec_generate_nmea(d, bufferlen, fillbits, received_t);
+#endif
 
 	//multipart message ready. Increase seqnr for next one
 	//rolling 1-9. Single msg ready may also increase this, no matter.
