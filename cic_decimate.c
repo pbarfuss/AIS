@@ -97,7 +97,7 @@ void hilbert(unsigned char *buf, uint32_t len)
 	}
 }
 
-unsigned int cic4_decimate(cic_filter_t *cic, float *out, uint8_t *samples_in, unsigned int samples_count)
+unsigned int cic4_decimate(cic_filter_t *cic, FFTComplex *out, uint8_t *samples_in, unsigned int samples_count)
 {
     unsigned int i, j = 0, decim_ctr = 0;
     samples_count <<= 1;
@@ -111,14 +111,15 @@ unsigned int cic4_decimate(cic_filter_t *cic, float *out, uint8_t *samples_in, u
         {
             int32_t sample_out_r = cycle_comb(&cic->comb_r, sample_r, 4);
             int32_t sample_out_j = cycle_comb(&cic->comb_j, sample_j, 4);
-            out[2*j  ] = (float)sample_out_r;
-            out[2*j+1] = (float)sample_out_j;
+            out[j].re = (float)sample_out_r;
+            out[j].im = (float)sample_out_j;
+            j++;
         }
     }
     return j;
 }
 
-unsigned int cic1_decimate(cic_filter_t *cic, float *out, uint8_t *samples_in, unsigned int samples_count)
+unsigned int cic1_decimate(cic_filter_t *cic, FFTComplex *out, uint8_t *samples_in, unsigned int samples_count)
 {
     unsigned int i, j = 0, decim_ctr = 0;
     samples_count <<= 1;
@@ -132,8 +133,9 @@ unsigned int cic1_decimate(cic_filter_t *cic, float *out, uint8_t *samples_in, u
         {
             int32_t sample_out_r = cycle_comb(&cic->comb_r, sample_r, 2);
             int32_t sample_out_j = cycle_comb(&cic->comb_j, sample_j, 2);
-            out[2*j  ] = (float)sample_out_r;
-            out[2*j+1] = (float)sample_out_j;
+            out[j].re = (float)sample_out_r;
+            out[j].im = (float)sample_out_j;
+            j++;
         }
     }
     return j;
