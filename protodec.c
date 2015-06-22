@@ -143,19 +143,17 @@ static void remove_trailing_spaces(char *s, int len)
  *	Decode 6-bit ASCII to normal 8-bit ASCII
  */
 
-void protodec_decode_sixbit_ascii(char sixbit, char *name, unsigned int pos)
+char protodec_decode_sixbit_ascii(char sixbit)
 {
-	if (sixbit >= 1 && sixbit <= 31) {
-		name[pos] = sixbit + 64;
-		return;
+    char eightbit = ' ';
+
+	if (sixbit >= 1 && sixbit < 32) {
+		eightbit = sixbit + 64;
+	} else if (sixbit < 64) {
+		eightbit = sixbit;
 	}
 
-	if (sixbit >= 32 && sixbit <= 63) {
-		name[pos] = sixbit;
-		return;
-	}
-
-	name[pos] = ' ';
+    return eightbit;
 }
 
 unsigned int protodec_henten(unsigned int from, unsigned int size, unsigned char *frame)
@@ -400,7 +398,7 @@ void protodec_pos(struct demod_state_t *d, unsigned int bufferlen, time_t receiv
 	navstat = protodec_henten(38, 2, d->rbuffer);
 	rateofturn = protodec_henten(38 + 2, 8, d->rbuffer);
 
-	printf(" lat %.6f lon %.6f course %.0f speed %.1f rateofturn %d navstat %d heading %d",
+	printf("lat %.6f lon %.6f course %.0f speed %.1f rateofturn %d navstat %d heading %d",
 		   latit / 3.0f, longit / 3.0f, (float) course * 0.1f, (float) sog * 0.1f, rateofturn, navstat, heading);
 	update_range(d, mmsi, latit / 3.0f, longit / 3.0f);
 }
@@ -451,7 +449,7 @@ void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received
 	/* get callsign */
 	for (k = 0; k < 6; k++) {
 		letter = protodec_henten(pos, 6, d->rbuffer);
-		protodec_decode_sixbit_ascii(letter, callsign, k);
+		callsign[k] = protodec_decode_sixbit_ascii(letter);
 		pos += 6;
 	}
 	callsign[6] = 0;
@@ -461,7 +459,7 @@ void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received
 	pos = 112;
 	for (k = 0; k < 20; k++) {
 		letter = protodec_henten(pos, 6, d->rbuffer);
-		protodec_decode_sixbit_ascii(letter, name, k);
+		name[k] = protodec_decode_sixbit_ascii(letter);
 		pos += 6;
 	}
 	name[20] = 0;
@@ -471,7 +469,7 @@ void protodec_5(struct demod_state_t *d, unsigned int bufferlen, time_t received
 	pos = 120 + 106 + 68 + 8;
 	for (k = 0; k < 20; k++) {
 		letter = protodec_henten(pos, 6, d->rbuffer);
-		protodec_decode_sixbit_ascii(letter, destination, k);
+		destination[k] = protodec_decode_sixbit_ascii(letter);
 		pos += 6;
 	}
 	destination[20] = 0;
@@ -593,7 +591,7 @@ void protodec_19(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 	pos = 143;
 	for (k = 0; k < 20; k++) {
 		letter = protodec_henten(pos, 6, d->rbuffer);
-		protodec_decode_sixbit_ascii(letter, name, k);
+		name[k] = protodec_decode_sixbit_ascii(letter);
 		pos += 6;
 	}
 	name[20] = 0;
@@ -630,6 +628,59 @@ void protodec_20(struct demod_state_t *d, unsigned int bufferlen)
 	}
 }
 
+void protodec_21(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
+{
+	int pos, k;
+	unsigned int A, B;
+	unsigned char C, D;
+	unsigned int accuracy, ts, aton_type;
+	int longitude, latitude;
+	float longit, latit;
+	int letter;
+	char name[21];
+	/*
+	 * Class B does not have destination, use "CLASS B" instead
+	 * (same as ShipPlotter)
+	 */
+
+	/* get name */
+    aton_type = protodec_henten(38, 43, d->rbuffer);
+	pos = 43;
+	for (k = 0; k < 20; k++) {
+		letter = protodec_henten(pos, 6, d->rbuffer);
+		name[k] = protodec_decode_sixbit_ascii(letter);
+		pos += 6;
+	}
+	name[20] = 0;
+	remove_trailing_spaces(name, 20);
+	//printf("Name: '%s'\n", name);
+
+    accuracy  = protodec_henten(163, 1, d->rbuffer);
+	longitude = protodec_henten(164, 28, d->rbuffer);
+	latitude  = protodec_henten(192, 27, d->rbuffer);
+	if (((longitude >> 27) & 1) == 1)
+		longitude |= 0xF0000000;
+	longit = ((float) longitude) * 0.0000005f;
+
+	if (((latitude >> 26) & 1) == 1)
+		latitude |= 0xf8000000;
+	latit = ((float) latitude) * 0.0000005f;
+
+	/* dimensions and reference GPS position */
+	A = protodec_henten(219, 9, d->rbuffer);
+	B = protodec_henten(228, 9, d->rbuffer);
+	C = protodec_henten(237, 6, d->rbuffer);
+	D = protodec_henten(243, 6, d->rbuffer);
+    protodec_henten(249, 4, d->rbuffer);
+    ts = protodec_henten(253, 6, d->rbuffer);
+    protodec_henten(259, 12, d->rbuffer);
+
+	// printf("Length: %d\nWidth: %d\n",A+B,C+D);
+	//printf("%09ld %d %d %f", mmsi, A + B, C + D);
+	printf("AtoN Message 21: AtoN type: %u, name \"%s\" ts %u lat %.6f lon %.6f width %d height %d\n",
+           aton_type, name, ts, latit / 3.0f, longit / 3.0f, A+B, C+D);
+}
+
 void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t received_t, uint32_t mmsi)
 {
 	int partnr;
@@ -655,7 +706,7 @@ void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 		pos = 40;
 		for (k = 0; k < 20; k++) {
 			letter = protodec_henten(pos, 6, d->rbuffer);
-			protodec_decode_sixbit_ascii(letter, name, k);
+			name[k] = protodec_decode_sixbit_ascii(letter);
 			pos += 6;
 		}
 
@@ -670,7 +721,7 @@ void protodec_24(struct demod_state_t *d, unsigned int bufferlen, time_t receive
 		pos = 90;
 		for (k = 0; k < 6; k++) {
 			letter = protodec_henten(pos, 6, d->rbuffer);
-			protodec_decode_sixbit_ascii(letter, callsign, k);
+			callsign[k] = protodec_decode_sixbit_ascii(letter);
 			pos += 6;
 		}
 		callsign[6] = 0;
@@ -865,6 +916,10 @@ void ais_protodec_getdata(unsigned int bufferlen, struct demod_state_t *d)
 
 	case 19: /* class B transmitter vessel info */
 		protodec_19(d, bufferlen, received_t, mmsi);
+		break;
+
+	case 21: /* Aid-to-Navigation report */
+		protodec_21(d, bufferlen, received_t, mmsi);
 		break;
 
 	case 24: /* class B transmitter info */
