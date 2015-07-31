@@ -14,15 +14,10 @@ static const float invpio2 =  6.3661980629e-01; /* 0x3f22f984 */
 
 #include "rtl-ais.h"
 #include "protodec.h"
-#include "filtertables.h"
 #include "fast_atanf.h"
 #define RTLSDR_SAMPLE_RATE 288000
 #define DOWNSAMPLE_FILTER_LENGTH 128
 #define	INC	16
-
-FFTComplex scalarproduct_iq_c(FFTComplex *v1, float *v2, unsigned int len);
-FFTComplex scalarproduct_iq_sse(FFTComplex *v1, float *v2, unsigned int len);
-FFTComplex scalarproduct_iq_neon(FFTComplex *v1, float *v2, unsigned int len);
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
