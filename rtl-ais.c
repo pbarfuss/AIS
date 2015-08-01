@@ -15,6 +15,7 @@ static const float invpio2 =  6.3661980629e-01; /* 0x3f22f984 */
 #include "rtl-ais.h"
 #include "protodec.h"
 #include "fast_atanf.h"
+#include "filtertables.h"
 #define RTLSDR_SAMPLE_RATE 288000
 #define DOWNSAMPLE_FILTER_LENGTH 128
 #define	INC	16
